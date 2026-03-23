@@ -7,7 +7,7 @@ Thank you for helping make this resource better for everyone preparing for the A
 - **Add new questions** — the most impactful contribution
 - **Fix a wrong answer** — if you spot an incorrect `answer` index
 - **Improve an explanation** — clearer reasoning helps learners
-- **Report a bug** — open an [Issue](https://github.com/erBhushanPawar/aws-DEA-C01/issues)
+- **Report a bug** — open an [Issue](https://github.com/erBhushanPawar/aws-dea-c01/issues)
 - **Improve the UI** — CSS or JS improvements welcome
 
 ---
@@ -93,7 +93,7 @@ Each question in `questions.json` must follow this exact structure:
 
 ## Reporting bugs
 
-Open an [Issue](https://github.com/erBhushanPawar/aws-DEA-C01/issues) and include:
+Open an [Issue](https://github.com/erBhushanPawar/aws-dea-c01/issues) and include:
 - What you expected to happen
 - What actually happened
 - Browser and OS (for UI bugs)

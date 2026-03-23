@@ -2,7 +2,7 @@
 
 A free, open-source quiz app for the **AWS Certified Data Engineer – Associate (DEA-C01)** exam. No sign-up, no tracking, no internet required after the first load.
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-blue)](https://erbhushanpawar.github.io/aws-DEA-C01/)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-GitHub%20Pages-blue)](https://erbhushanpawar.github.io/aws-dea-c01/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Questions](https://img.shields.io/badge/Questions-65-orange)](questions.json)
 [![Contributions Welcome](https://img.shields.io/badge/Contributions-Welcome-brightgreen)](CONTRIBUTING.md)
@@ -48,7 +48,7 @@ Anyone preparing for the AWS Certified Data Engineer – Associate exam — espe
 ### Option 1 — Live Demo (no setup needed)
 
 Open the live version directly in your browser:
-[https://erbhushanpawar.github.io/aws-DEA-C01/](https://erbhushanpawar.github.io/aws-DEA-C01/)
+[https://erbhushanpawar.github.io/aws-dea-c01/](https://erbhushanpawar.github.io/aws-dea-c01/)
 
 ### Option 2 — Run locally
 
@@ -58,16 +58,16 @@ Clone the repo and serve it with any local HTTP server.
 
 **Node.js**
 ```bash
-git clone https://github.com/erBhushanPawar/aws-DEA-C01.git
-cd aws-DEA-C01
+git clone https://github.com/erBhushanPawar/aws-dea-c01.git
+cd aws-dea-c01
 npx serve .
 # Open http://localhost:3000
 ```
 
 **Python**
 ```bash
-git clone https://github.com/erBhushanPawar/aws-DEA-C01.git
-cd aws-DEA-C01
+git clone https://github.com/erBhushanPawar/aws-dea-c01.git
+cd aws-dea-c01
 python3 -m http.server 8080
 # Open http://localhost:8080
 ```
@@ -80,7 +80,7 @@ Install the [Live Server](https://marketplace.visualstudio.com/items?itemName=ri
 ## Project Structure
 
 ```
-aws-DEA-C01/
+aws-dea-c01/
 ├── index.html          # Single-page app
 ├── questions.json      # All 65 questions — edit freely
 ├── css/
@@ -102,7 +102,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for the question format and how to submit
 **Quick ways to contribute:**
 - Add more questions (target: 130 questions to match full exam bank depth)
 - Fix a wrong answer or improve an explanation
-- Report a bug via [Issues](https://github.com/erBhushanPawar/aws-DEA-C01/issues)
+- Report a bug via [Issues](https://github.com/erBhushanPawar/aws-dea-c01/issues)
 - Share the repo with others preparing for this exam
 
 ---
