@@ -485,6 +485,104 @@ h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
   border-radius: var(--radius);
 }
 
+/* ── Mode / filter config ── */
+.config-section { margin-bottom: 1.5rem; }
+
+.config-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.mode-row {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 1rem;
+}
+
+.mode-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  text-align: center;
+  transition: border-color 0.15s, background 0.15s;
+}
+.mode-btn:hover { background: var(--bg); border-color: var(--border-strong); }
+.mode-btn.active {
+  border-color: var(--blue);
+  background: var(--blue-bg);
+}
+
+.mode-icon { font-size: 20px; line-height: 1; }
+.mode-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.mode-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.3;
+}
+
+.filter-group {
+  margin-top: 12px;
+  padding: 14px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.filter-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.chip {
+  padding: 6px 14px;
+  border-radius: 20px;
+  border: 1.5px solid var(--border-strong);
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.chip:hover { background: var(--bg); }
+.chip.active {
+  background: var(--text-primary);
+  color: #fff;
+  border-color: var(--text-primary);
+}
+
+.chip-easy.active    { background: var(--green);  border-color: var(--green); }
+.chip-moderate.active { background: var(--amber);  border-color: var(--amber); }
+.chip-hard.active    { background: var(--red);    border-color: var(--red); }
+
+.selection-summary {
+  font-size: 13px;
+  color: var(--blue-text);
+  font-weight: 500;
+  margin-bottom: 1.25rem;
+  min-height: 1.2em;
+}
+.selection-summary.selection-empty { color: var(--red-text); }
+
 /* ── Responsive ── */
 @media (max-width: 520px) {
   .quiz-wrap { padding: 1rem 1rem 3rem; }

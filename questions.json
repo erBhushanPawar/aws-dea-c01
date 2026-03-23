@@ -1233,5 +1233,575 @@
       "C – Incorrect. Transfer Acceleration optimizes upload/download performance; it has no access restriction capability.",
       "D – Incorrect. S3 ACLs are legacy access controls and don't support VPC-based conditions."
     ]
+  },
+  {
+    "id": 66,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A financial services company ingests 500 GB of transaction records per hour into Amazon S3 using Amazon Kinesis Data Firehose. The data team needs to run ad-hoc SQL queries within seconds of data arrival, but the raw JSON files are too large and unpartitioned to query efficiently. Data must be retained in S3 for compliance. Which solution meets all requirements with the least operational overhead?",
+    "options": [
+      "Configure Kinesis Data Firehose to deliver raw JSON to S3, then create an AWS Lambda function triggered by S3 events to convert each file to Parquet using Apache Arrow and register the schema in AWS Glue Data Catalog so Amazon Athena can query the partitioned Parquet files.",
+      "Configure Kinesis Data Firehose with dynamic partitioning and a built-in record format conversion to Apache Parquet using an AWS Glue schema, delivering partitioned Parquet files directly to S3, then query with Amazon Athena using the Glue Data Catalog table.",
+      "Configure Kinesis Data Firehose to deliver raw JSON to S3, then use an AWS Glue ETL job on a scheduled trigger every 5 minutes to convert the files to Parquet and update the Glue Data Catalog partition metadata so Athena can query the converted data.",
+      "Configure Kinesis Data Firehose to deliver raw JSON to Amazon S3, enable S3 Intelligent-Tiering, create an Amazon Redshift Spectrum external table over the S3 location, and query the raw JSON data directly from Redshift Spectrum using the SUPER data type."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Using Lambda for per-file Parquet conversion adds significant operational complexity, cold start latency, and Lambda concurrency concerns at 500 GB/hr scale. Firehose's built-in conversion is the lower-overhead path.",
+      "B – Correct. Kinesis Data Firehose natively supports dynamic partitioning (e.g., by event time extracted from the record) and record format conversion to Parquet backed by an AWS Glue schema registry. This delivers query-ready, partitioned Parquet directly to S3 with no additional compute to manage.",
+      "C – Incorrect. A Glue ETL job on a 5-minute schedule introduces up to 5 minutes of latency and adds job management overhead. It also re-processes data that Firehose already delivered, creating redundant work.",
+      "D – Incorrect. Redshift Spectrum can query raw JSON via SUPER, but querying unpartitioned raw JSON at 500 GB/hr produces poor query performance and high Redshift Spectrum scan costs compared to columnar Parquet."
+    ]
+  },
+  {
+    "id": 67,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A data engineering team runs an Amazon Redshift cluster storing 10 TB of sales data. Analysts run heavy aggregation queries during business hours, while an ETL pipeline performs bulk COPY loads of 50 GB every night. During ETL loads, analyst query performance degrades significantly. The team wants to isolate workloads without duplicating data or increasing storage costs. Which approach best achieves this?",
+    "options": [
+      "Create a second Amazon Redshift cluster, set up cross-cluster data sharing using Amazon Redshift Data Sharing, publish the sales schema from the producer cluster to a consumer cluster, and direct analysts to the consumer cluster while ETL loads run on the producer cluster.",
+      "Enable Amazon Redshift Concurrency Scaling on the existing cluster, create two WLM queues — one for analyst queries using a user group assignment and one for the ETL COPY statements using a query group assignment — and allow the analyst queue to use concurrency scaling burst capacity during ETL windows.",
+      "Migrate the Redshift cluster to an RA3 instance type, enable Amazon Redshift Data Sharing to share the sales schema with a second RA3 cluster provisioned only during business hours, and configure the ETL pipeline to load into the primary cluster while analysts query the secondary cluster.",
+      "Create an Amazon Redshift Serverless workgroup for analysts and a separate workgroup for ETL operations, configure both workgroups to use the same Amazon Redshift Managed Storage namespace so they share the underlying data without duplication, and assign separate RPU capacity limits to each workgroup."
+    ],
+    "answer": 3,
+    "explanations": [
+      "A – Incorrect. Cross-cluster data sharing with two provisioned clusters duplicates provisioned capacity cost and adds replication lag, which violates the 'no increased storage costs' requirement.",
+      "B – Incorrect. WLM queues and concurrency scaling share the same cluster compute, so heavy COPY loads still consume I/O and CPU that compete with analyst queries on the same node fleet.",
+      "C – Incorrect. Provisioning a second RA3 cluster only during business hours is operationally complex (automated start/stop) and still incurs node-hour costs for two clusters during overlap windows.",
+      "D – Correct. Redshift Serverless workgroups backed by a shared Managed Storage namespace is precisely designed for this pattern: multiple compute pools access the same data lake-style storage without duplication, and each workgroup's RPU limits prevent one workload from starving the other."
+    ]
+  },
+  {
+    "id": 68,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A retail company streams clickstream events from its website using Amazon Kinesis Data Streams with 20 shards. A downstream AWS Lambda consumer processes events and writes aggregated session data to Amazon DynamoDB. During peak traffic, Lambda begins throwing IteratorAgeMilliseconds alarms above 5 minutes and some records are being dropped. Enhanced fan-out is not currently enabled. What is the most effective change to resolve the throughput bottleneck?",
+    "options": [
+      "Increase the Kinesis Data Stream shard count to 40 shards, update the Lambda event source mapping to increase the batch size to 10,000 records and the parallelization factor to 10, and enable enhanced fan-out so Lambda uses a dedicated 2 MB/s per-shard throughput pipe instead of sharing the 2 MB/s shard read limit with other consumers.",
+      "Enable enhanced fan-out on the Lambda consumer to give it a dedicated 2 MB/s read throughput per shard independent of other consumers, increase the Lambda event source mapping parallelization factor to 10 to process multiple batches per shard concurrently, and increase the Lambda function reserved concurrency to match the expected parallel execution count.",
+      "Increase the Lambda event source mapping batch size from the default to 10,000, increase the batch window to 30 seconds to allow larger micro-batches, and increase Lambda reserved concurrency to 200 to handle the peak load, without changing shard count or enabling enhanced fan-out.",
+      "Convert the Kinesis Data Stream from standard to enhanced fan-out delivery for all consumers, migrate the Lambda consumer to an Amazon Kinesis Data Firehose delivery stream that buffers records before invoking Lambda, and increase the Firehose buffer interval to 300 seconds to smooth throughput spikes."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Increasing shard count does help throughput but doubling shards doubles shard-hour cost. The root cause here is shared read bandwidth and insufficient Lambda parallelism, not shard read capacity — enhanced fan-out and parallelization factor address that directly.",
+      "B – Correct. Enhanced fan-out gives the Lambda consumer a dedicated 2 MB/s HTTP/2 push per shard, eliminating contention with other consumers on the 2 MB/s shared GetRecords limit. Raising the parallelization factor (up to 10) allows Lambda to process multiple batches from a single shard concurrently, reducing iterator age. Reserved concurrency must be set high enough to avoid throttling these parallel invocations.",
+      "C – Incorrect. Increasing batch size and window reduces the number of Lambda invocations but does not fix the underlying read throughput bottleneck caused by the shared 2 MB/s GetRecords limit. IteratorAgeMilliseconds will continue to grow.",
+      "D – Incorrect. Kinesis Data Firehose is a delivery service to destinations like S3, Redshift, or OpenSearch — it cannot replace a stateful Lambda consumer writing to DynamoDB with custom aggregation logic. Buffering for 300 seconds also dramatically increases latency."
+    ]
+  },
+  {
+    "id": 69,
+    "domain": 3,
+    "difficulty": "hard",
+    "question": "A data platform team manages 200 AWS Glue ETL jobs across 3 AWS accounts (dev, staging, production). Jobs frequently fail due to mismatched schema versions when the upstream data team evolves the Avro schemas in Amazon S3 without notifying the ETL team. The team wants an automated way to detect schema changes before they break production jobs. Which solution provides the earliest detection with the least manual effort?",
+    "options": [
+      "Create an AWS Glue crawler scheduled to run every 30 minutes in each account that scans the S3 data locations, compare the detected schema against the previously stored Glue Data Catalog schema version using an AWS Lambda function invoked by an Amazon EventBridge rule on crawler completion, and send an Amazon SNS notification if any column type or name change is detected.",
+      "Register all Avro schemas in AWS Glue Schema Registry with compatibility mode set to BACKWARD, configure producers to validate and register new schema versions before writing to S3, configure Glue ETL jobs to resolve schemas at runtime using the Glue Schema Registry client library, and alert on registry registration failures via Amazon CloudWatch alarms.",
+      "Enable AWS Glue Data Quality rules on each ETL job's input dataset to check for unexpected column types and null rates, configure the rules to fail the job on violation, and set up an Amazon EventBridge rule to route Glue job failure events to an Amazon SNS topic that pages the on-call data engineer.",
+      "Use AWS Lake Formation to enforce column-level schema governance on the S3 data lake, configure Lake Formation permissions so upstream producers must request write access through an approval workflow, and use AWS CloudTrail to audit all schema changes and trigger an Amazon EventBridge rule when a PutObject API call modifies a schema file."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Glue crawlers infer schema from sampled data and run on a delay. This approach detects schema changes after data has already landed and may have already been processed by ETL jobs, making it reactive rather than preventive.",
+      "B – Correct. Glue Schema Registry with BACKWARD compatibility mode enforces that producers register and validate new schema versions before writing data. This catches breaking changes at the source — before any ETL job reads the data — with no manual effort after initial setup. ETL jobs resolve schemas at runtime using the registry client, ensuring they always use the registered compatible version.",
+      "C – Incorrect. Glue Data Quality rules detect problems after the ETL job has already started processing bad data. This is reactive and still causes job failures; it just makes them more informative. It does not prevent the schema mismatch from occurring.",
+      "D – Incorrect. Lake Formation governs access control, not schema evolution enforcement. CloudTrail auditing of PutObject events would generate noise from all data writes, not just schema file changes, and still requires a human to review audit logs."
+    ]
+  },
+  {
+    "id": 70,
+    "domain": 4,
+    "difficulty": "hard",
+    "question": "A healthcare company stores patient records in Amazon S3 and queries them with Amazon Athena. A compliance audit requires that all queries accessing columns tagged as PHI (Protected Health Information) must be logged with the querying IAM principal, the exact SQL text, and the columns accessed. Access to PHI columns must also be restricted to a specific IAM role. Which combination of services enforces both the column-level access restriction and the required audit trail?",
+    "options": [
+      "Apply S3 bucket policies restricting access to the PHI prefixes to only the approved IAM role, enable S3 Server Access Logging to capture all S3 GET requests made by Athena, enable Athena query logging to Amazon CloudWatch Logs, and use CloudWatch Logs Insights to correlate S3 access logs with Athena query history for the audit trail.",
+      "Use AWS Lake Formation column-level permissions to restrict access to PHI columns to the approved IAM role only, enable AWS CloudTrail data events for Athena to log every query execution including the IAM principal and SQL text, and use Amazon Athena query history in conjunction with CloudTrail to satisfy the audit requirement.",
+      "Create an AWS Glue Data Catalog table with PHI columns marked using resource tags, configure AWS IAM policies to deny Athena GetQueryResults for principals without the PHI tag on their session, enable Athena workgroup query logging to S3, and use AWS Macie to scan the Athena result bucket for any PHI that surfaces in query outputs.",
+      "Enable AWS Lake Formation row and cell-level security filters to mask PHI column values for unauthorized roles, configure Amazon Macie to scan all S3 data for PHI classification, route Macie findings to Amazon Security Hub, and use Security Hub custom actions to trigger an AWS Lambda function that revokes temporary IAM credentials when a PHI access violation is detected."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. S3 Server Access Logs capture object-level GET requests but do not record SQL query text or which columns were projected. This approach cannot satisfy the 'columns accessed' part of the audit requirement.",
+      "B – Correct. Lake Formation column-level permissions are the native AWS mechanism for restricting access to specific Glue Data Catalog columns down to the IAM role level. CloudTrail data events for Athena record the IAM principal ARN, query ID, and full SQL text. Combined with Athena query history (which also stores SQL), this satisfies both the restriction and the detailed audit trail requirements.",
+      "C – Incorrect. IAM tag-based session policies for Athena GetQueryResults are not a supported mechanism for column-level access control in Athena. Macie scans S3 for PII in stored data but does not intercept live query execution.",
+      "D – Incorrect. Lake Formation cell-level security can mask values, but using Macie + Security Hub + Lambda to revoke credentials reactively is an incident response pattern, not a column-level access restriction. It also introduces significant latency between violation and enforcement."
+    ]
+  },
+  {
+    "id": 71,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A company uses Amazon DynamoDB to store IoT sensor readings, with the partition key as device_id and sort key as timestamp. Analysts need to run queries like 'return all readings for a geographic region between two timestamps' but region is not part of the current key schema. Adding a GSI on region and timestamp is proposed. The table has 500 GB of data and 20,000 write units per second. Which concern should the team address before creating the GSI?",
+    "options": [
+      "A GSI on region and timestamp will cause hot partition issues if certain regions generate disproportionately more writes than others, because DynamoDB distributes GSI partitions by the GSI partition key, and write traffic to a high-cardinality region value will be throttled when that GSI partition exceeds 1,000 WCU/s, requiring the team to add a write sharding suffix to the region attribute before creating the GSI.",
+      "Creating a GSI with region as partition key will replicate all 500 GB of table data into the GSI storage asynchronously, but if the table's write throughput during GSI backfill exceeds the GSI's provisioned write capacity, DynamoDB will throttle writes to the base table, requiring the team to temporarily double the table's provisioned WCU to 40,000 during the GSI build phase.",
+      "Because DynamoDB GSIs are eventually consistent, queries against the GSI may return readings that are up to several seconds stale, which means the team must implement a read-your-writes pattern by always querying the base table for the most recent readings and only using the GSI for historical range queries older than 60 seconds.",
+      "A GSI on a 500 GB table requires DynamoDB to create a complete copy of the projected attributes in a separate partition space; because the current table uses provisioned capacity mode, the GSI backfill will consume the table's existing read capacity units at a rate proportional to the table size, so the team must switch to on-demand mode before initiating the GSI creation."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. If certain geographic regions (e.g., 'us-east') receive the vast majority of writes, the GSI partition for that region value will become a hot partition and breach the per-partition 1,000 WCU/s limit. Write sharding — appending a random suffix like region#1, region#2 — distributes writes across multiple GSI partitions and is the standard mitigation before creating such a GSI.",
+      "B – Incorrect. GSI backfill does consume write capacity on the GSI itself (not double the base table WCU). DynamoDB throttles the GSI write during backfill if the GSI WCU is insufficient, but this does not directly throttle the base table writes as described.",
+      "C – Incorrect. While GSIs are indeed eventually consistent, the staleness window is milliseconds to low seconds — not a fixed 60-second threshold. The read-your-writes pattern described (querying base table for recent data) is a valid pattern for some use cases, but the framing of a 60-second cutoff is inaccurate and not the primary concern here.",
+      "D – Incorrect. Switching to on-demand mode is not required before creating a GSI. DynamoDB handles GSI backfill internally and the team can control GSI WCU separately from the base table in provisioned mode."
+    ]
+  },
+  {
+    "id": 72,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A company runs an AWS Glue Spark ETL job that reads 2 TB of JSON data from Amazon S3, applies complex transformations including multiple joins and window functions, and writes the results back to S3 as Parquet. The job is running on 20 G.2X workers and taking 4 hours to complete. Profiling reveals that 70% of job time is spent in the shuffle phase of the joins. Which change is most likely to reduce overall job runtime?",
+    "options": [
+      "Increase the number of G.2X workers from 20 to 40, set the Spark configuration spark.sql.shuffle.partitions to 2000 to increase parallelism during the shuffle, enable AWS Glue job bookmarks to avoid reprocessing S3 files already transformed in previous runs, and switch the output compression codec from Snappy to ZSTD to reduce write time.",
+      "Convert the large JSON input files to Parquet with Snappy compression using a one-time AWS Glue job before the main ETL runs, re-partition the Parquet files by the join key column so that records with the same join key are co-located in the same S3 prefix, and configure the main Glue ETL job to read the pre-partitioned Parquet, enabling partition pruning and reducing shuffle data volume.",
+      "Enable AWS Glue auto-scaling to allow the job to scale up to 100 workers dynamically during the shuffle phase, set spark.sql.adaptive.enabled to true to enable Adaptive Query Execution which will automatically coalesce small shuffle partitions, and upgrade from Glue 3.0 to Glue 4.0 to use the latest Spark 3.3 engine with improved shuffle performance.",
+      "Switch the join strategy from a sort-merge join to a broadcast join by setting spark.sql.autoBroadcastJoinThreshold to 512 MB for the smaller join tables, enable the Glue DPU auto-scaling feature, increase the G.2X worker disk size by attaching additional Amazon EBS volumes to handle spill-to-disk during large shuffles, and partition the output Parquet by year and month."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Doubling workers reduces wall time by increasing parallelism but does not reduce the total amount of data shuffled. If the shuffle is the bottleneck, adding more workers speeds up each shuffle stage but the fundamental data movement cost remains. Bookmarks and compression codec changes address different problems.",
+      "B – Correct. Pre-converting JSON to Parquet eliminates the JSON parsing overhead (often 3-5x slower than Parquet reads). Pre-partitioning Parquet files by the join key means that when the ETL job performs the join, matching records are already co-located — allowing Spark to perform a partition-wise join that eliminates or dramatically reduces cross-node shuffle. This addresses the root cause of the 70% shuffle time.",
+      "C – Incorrect. Adaptive Query Execution (AQE) with coalescing helps with small partition overhead but does not reduce the volume of data shuffled if join keys are not co-located. Auto-scaling to 100 workers reduces elapsed time but not total shuffle work.",
+      "D – Incorrect. Broadcast joins only work when one side of the join fits in memory (typically <10 MB default, 512 MB requires significant memory). For 2 TB of data with multiple large tables being joined, broadcast join thresholds at 512 MB would still fail for most joins. EBS volumes for spill-to-disk are a workaround for OOM, not a performance optimization."
+    ]
+  },
+  {
+    "id": 73,
+    "domain": 3,
+    "difficulty": "hard",
+    "question": "A data platform team is designing an observability strategy for a production data pipeline that ingests from Amazon Kinesis, transforms in AWS Glue, and loads into Amazon Redshift. The SLA requires detecting any pipeline stall (no data flowing) within 5 minutes and automatically attempting a restart before paging on-call. Which architecture meets this requirement?",
+    "options": [
+      "Create an Amazon CloudWatch dashboard combining Kinesis IncomingRecords, Glue job metrics, and Redshift STL_LOAD_COMMITS metrics, configure a CloudWatch alarm on each metric with a 5-minute evaluation period and an SNS notification to the on-call engineer, and document a runbook for the on-call engineer to manually restart the failed component within the 5-minute SLA window.",
+      "Publish a custom Amazon CloudWatch metric from each pipeline stage (Kinesis consumer lag, Glue job record throughput, Redshift load row count) using a lightweight heartbeat Lambda function invoked every minute, create a CloudWatch Composite Alarm that fires when any stage metric drops to zero for two consecutive evaluation periods, configure an SNS topic to trigger an AWS Lambda function that attempts an automated restart of the stalled stage, and only pages on-call if the restart Lambda fails or the alarm persists after restart.",
+      "Use AWS Glue workflows to orchestrate the end-to-end pipeline with Glue triggers connecting each stage, configure the Glue workflow to send an Amazon EventBridge event on job failure, create an EventBridge rule that triggers an AWS Step Functions state machine which retries the failed Glue job up to 3 times with exponential backoff, and send an SNS page if all retries are exhausted.",
+      "Enable Amazon Kinesis Data Streams enhanced monitoring for all shard-level metrics, configure AWS CloudTrail to log all Glue and Redshift API calls, create an Amazon Athena query that joins CloudTrail logs with Redshift STL_LOAD_COMMITS to detect stalls, schedule the Athena query every 5 minutes using Amazon EventBridge Scheduler, and trigger an SNS alert if the query returns zero rows."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. This architecture detects the stall and pages the engineer but does not attempt an automated restart. The SLA requires an automated restart attempt before paging, which this option omits.",
+      "B – Correct. Publishing per-stage throughput as custom metrics with 1-minute granularity enables detection within 2 minutes of a stall. The composite alarm prevents false positives from brief dips. The SNS→Lambda automated restart satisfies the 'attempt restart before paging' requirement. Escalating to on-call only on restart failure meets the SLA while reducing alert noise.",
+      "C – Incorrect. Glue workflows with EventBridge and Step Functions handle Glue job failures well, but this architecture does not monitor Kinesis consumer lag or Redshift load activity. A stall in the Kinesis consumer or a silent Redshift load failure would not be detected by Glue workflow failure events.",
+      "D – Incorrect. Scheduling an Athena query every 5 minutes introduces up to 5 minutes of detection latency plus Athena query execution time, making it impossible to reliably detect and restart within the 5-minute SLA. CloudTrail log delivery also has a ~15-minute delay, making real-time pipeline monitoring via CloudTrail unreliable."
+    ]
+  },
+  {
+    "id": 74,
+    "domain": 4,
+    "difficulty": "hard",
+    "question": "A company processes payment data in an AWS Glue ETL job and stores the results in Amazon S3. A security audit finds that the Glue job IAM role has s3:* permissions on all buckets in the account. The security team mandates least-privilege access and requires that Glue job credentials cannot be used from outside the Glue service even if they are somehow exfiltrated. Which IAM policy configuration satisfies both requirements?",
+    "options": [
+      "Replace the s3:* wildcard with specific S3 actions (s3:GetObject, s3:PutObject, s3:DeleteObject) scoped to the specific S3 bucket ARN and key prefix ARN used by the Glue job, and add an IAM permission boundary to the Glue job role that limits the maximum permissions to those specific S3 actions on those specific resources.",
+      "Replace the s3:* wildcard with specific S3 actions scoped to only the required S3 bucket ARN and key prefix, and add a condition to the role's trust policy using the aws:SourceAccount condition key to restrict which AWS account can assume the role, preventing cross-account credential use.",
+      "Replace the s3:* wildcard with specific required S3 actions scoped to the exact S3 bucket ARN and key prefix the Glue job uses, and add an aws:CalledVia or aws:SourceService condition in the role's trust policy (or an SCP) restricting role assumption to calls originating from the glue.amazonaws.com service principal, so credentials derived from this role can only be used within Glue service context.",
+      "Replace the s3:* wildcard with a resource-based S3 bucket policy that explicitly allows only the Glue job role ARN to perform the required S3 actions on the specific bucket and prefix, remove all IAM inline and managed policies from the Glue role for S3, and add an aws:PrincipalArn condition to the bucket policy to ensure only the exact role ARN can access the bucket."
+    ],
+    "answer": 2,
+    "explanations": [
+      "A – Incorrect. A permission boundary limits maximum permissions but does not restrict where or by whom the credentials can be used. If the credentials are exfiltrated, they can still be used from outside Glue as long as the actions fall within the boundary.",
+      "B – Incorrect. aws:SourceAccount in the trust policy restricts which account can assume the role but does not restrict the credentials to only be usable from within the Glue service. An IAM user in the same account with sts:AssumeRole permissions could still assume the role and use the credentials outside Glue.",
+      "C – Correct. Scoping S3 actions to the exact required resources addresses least-privilege. Adding a condition that restricts assumption or usage to the glue.amazonaws.com service principal (via the trust policy or an SCP using aws:CalledVia) means the temporary credentials issued to the role can only be used when the call is made through the Glue service, preventing misuse of exfiltrated credentials from a workstation or other service.",
+      "D – Incorrect. Resource-based S3 bucket policies with PrincipalArn conditions enforce least-privilege access at the bucket level but do not prevent the Glue role credentials from being used to call other AWS services or from being used outside the Glue context after exfiltration."
+    ]
+  },
+  {
+    "id": 75,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A data engineering team is migrating a 50 TB on-premises Oracle data warehouse to Amazon Redshift. The Oracle schema uses 300 stored procedures with complex PL/SQL logic, 80 materialized views with incremental refresh, and proprietary Oracle analytic functions like LISTAGG with overflow handling and MODEL clause queries. The team needs to assess migration complexity before committing to a timeline. Which AWS tool and approach gives the most accurate complexity estimate?",
+    "options": [
+      "Use the AWS Schema Conversion Tool (SCT) to connect directly to the Oracle database, run a full schema conversion assessment report which automatically scores each object (stored procedures, views, functions) by conversion complexity (simple, medium, complex, action required), review the estimated manual effort hours in the SCT report for objects rated as requiring manual intervention, and use this report to build the migration timeline.",
+      "Export all Oracle DDL and stored procedure source code to SQL files, upload them to an Amazon S3 bucket, use Amazon Bedrock with a Claude model to analyze each PL/SQL file and classify the complexity of Oracle-specific constructs, generate a migration complexity score per object, and aggregate the scores into a project timeline estimate.",
+      "Provision a new Amazon Redshift cluster, manually translate 10 representative stored procedures and 5 materialized views that cover the most complex Oracle constructs found in the schema, measure the translation effort per object, extrapolate to the full 300 procedures and 80 views, and use this empirical effort estimate as the basis for the project timeline.",
+      "Use AWS Database Migration Service (DMS) Schema Conversion to run an automatic conversion of the Oracle schema to Redshift SQL, review the DMS conversion warnings and errors log to count the number of objects that failed automatic conversion, categorize failures by Oracle construct type, and assign manual effort estimates to each failure category to build the migration timeline."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. AWS SCT is the purpose-built tool for exactly this assessment. Its assessment report connects to the source database, inventories all objects, attempts automatic conversion, and produces a per-object complexity rating with estimated manual effort hours. This is the most accurate and fastest way to get a complexity breakdown before committing to a timeline.",
+      "B – Incorrect. Using Amazon Bedrock/LLM analysis of SQL files is not a standard or validated approach for migration complexity assessment. It would produce inconsistent results across the 380 objects and lacks the Redshift-specific conversion knowledge built into SCT.",
+      "C – Incorrect. Manual translation of 10 sample objects and extrapolation is highly inaccurate for a 380-object schema with varied complexity. Oracle constructs like MODEL clause queries are rare and time-intensive; a 10-sample approach would likely undersample the hardest cases.",
+      "D – Incorrect. AWS DMS Schema Conversion is designed for heterogeneous database migrations primarily for schema (DDL) conversion, not deep stored procedure logic conversion. It does not provide the detailed per-object effort estimation reports that SCT produces, and it handles complex PL/SQL less thoroughly than SCT."
+    ]
+  },
+  {
+    "id": 76,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A media company receives 10,000 video metadata events per second via Amazon API Gateway, backed by an AWS Lambda function that writes each event to Amazon Kinesis Data Streams. The Kinesis stream has 10 shards. Operators notice that the Lambda producer function is receiving ProvisionedThroughputExceededException errors on roughly 15% of PutRecord calls during peak hours. The team wants to eliminate dropped records without increasing shard count. Which producer-side change resolves this?",
+    "options": [
+      "Switch from PutRecord (single record per API call) to PutRecords (batch up to 500 records per API call) in the Lambda producer function, implement an exponential backoff with jitter retry loop for individual failed records within the PutRecords response, distribute records across shards using a randomized partition key, and set Lambda reserved concurrency high enough to handle 10,000 events per second without throttling the Lambda itself.",
+      "Enable Kinesis Producer Library (KPL) aggregation in the Lambda producer to pack multiple small records into a single Kinesis record up to the 1 MB limit, switch from synchronous PutRecord calls to asynchronous KPL addUserRecord calls with automatic retry handling, and configure the KPL RecordMaxBufferedTime to 100ms to balance latency against throughput.",
+      "Add an Amazon SQS queue between API Gateway and Lambda, configure the Lambda function to poll the SQS queue in batches of 1,000 messages, write batched records to Kinesis using PutRecords, implement dead-letter queue handling for records that fail after 3 Kinesis PutRecords retries, and use SQS message visibility timeout to prevent duplicate processing.",
+      "Increase the API Gateway throttling limit to 20,000 requests per second, configure the Lambda function to write directly to Amazon S3 using a time-based prefix partitioning scheme instead of Kinesis, and use an Amazon EventBridge Pipe to read from the S3 bucket and forward records to Kinesis in micro-batches, smoothing the write throughput."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Switching from PutRecord to PutRecords reduces the number of API calls by up to 500x for the same throughput, dramatically reducing the chance of hitting per-shard write limits. Randomized partition keys distribute load evenly across all 10 shards. Per-record retry within the PutRecords response handles partial failures. This is the standard producer optimization for this exact problem.",
+      "B – Incorrect. KPL is a Java/C++ library not natively available in Lambda's Node.js or Python runtimes. Aggregation is powerful but KPL's asynchronous model and external process dependency make it unsuitable for typical Lambda deployments. The RecordMaxBufferedTime also introduces latency that may not be acceptable.",
+      "C – Incorrect. Introducing SQS adds architectural complexity and additional cost. While SQS as a buffer is a valid pattern for protecting downstream systems, it does not resolve the Kinesis ProvisionedThroughputExceededException — it only defers the problem. The SQS Lambda consumer writing to Kinesis in batches would still need the PutRecords optimization from option A.",
+      "D – Incorrect. Bypassing Kinesis with direct S3 writes would break the streaming architecture and introduce significant latency (S3 object write + EventBridge Pipe polling delay). This is an architectural overhaul, not a targeted fix for a producer throttling problem."
+    ]
+  },
+  {
+    "id": 77,
+    "domain": 3,
+    "difficulty": "hard",
+    "question": "An e-commerce company runs daily Amazon Redshift COPY commands that load 200 GB of compressed Parquet files from Amazon S3. The DBA notices that COPY performance has degraded by 40% over three months even though the data volume and cluster size have not changed. The COPY command uses COMPUPDATE OFF and STATUPDATE OFF. STL_LOAD_ERRORS shows no errors. Which diagnostic step is most likely to identify the root cause?",
+    "options": [
+      "Run ANALYZE COMPRESSION on the target table to check whether the column compression encodings are still optimal for the current data distribution, compare the results against the encodings applied when the table was created, and re-encode columns with a high compression ratio mismatch using a CREATE TABLE AS SELECT (CTAS) operation followed by a table rename.",
+      "Query SVL_QUERY_REPORT and STL_WLM_QUERY to determine whether the COPY commands are being queued in a WLM queue with insufficient memory allocation, check for WLM queue wait times exceeding 10 minutes over the past three months, and if so increase the memory percentage allocated to the COPY workload queue.",
+      "Query SVV_TABLE_INFO to check the table's pct_unsorted and tbl_rows metrics, determine whether the target table has accumulated a large unsorted region due to three months of daily incremental loads without a VACUUM, run VACUUM SORT ONLY on the table, and then re-run ANALYZE to update statistics so the query planner uses efficient sort-merge joins during subsequent COPY operations.",
+      "Inspect STL_FILE_SCAN and STL_LOAD_COMMITS to compare the number of S3 files processed per COPY run over time, determine whether the number of input files has grown relative to the number of Redshift slices causing uneven file-to-slice distribution, and if so use the MAXFILESIZE parameter in the COPY command to split large files into smaller chunks matching the number of cluster slices."
+    ],
+    "answer": 3,
+    "explanations": [
+      "A – Incorrect. COMPUPDATE OFF in the COPY command means Redshift is not updating compression encodings, so compression mismatch would have been present from the start, not degrade gradually over three months. ANALYZE COMPRESSION is valuable for initial table design but not the root cause of gradual degradation.",
+      "B – Incorrect. WLM queue configuration changes would typically cause sudden degradation (e.g., after a configuration change), not gradual 40% degradation over three months. There is no indication that WLM configuration changed.",
+      "C – Incorrect. VACUUM and ANALYZE affect query performance for SELECT statements but do not directly improve COPY ingestion speed. COPY performance is primarily limited by I/O throughput, network bandwidth, and file-to-slice distribution — not sort order.",
+      "D – Correct. As data volume grows, the number of S3 files in the load path often increases. If new large files have been added or file counts changed, the file-to-slice ratio becomes uneven — some Redshift slices process many files while others idle. STL_FILE_SCAN reveals files processed per slice per run, and MAXFILESIZE causes Redshift to split files for even distribution. This is the canonical cause of gradual COPY degradation without data volume increase."
+    ]
+  },
+  {
+    "id": 78,
+    "domain": 4,
+    "difficulty": "hard",
+    "question": "A company uses Amazon EMR to process sensitive employee payroll data stored in Amazon S3. The security policy requires that data be encrypted in transit between EMR nodes and at rest on HDFS. The EMR cluster uses Kerberos authentication. A new requirement mandates that the encryption keys for HDFS at-rest encryption must be managed by the company's own AWS KMS keys with automatic key rotation enabled, and the key policy must prevent even the AWS account root user from using the key without MFA. Which EMR security configuration satisfies all requirements?",
+    "options": [
+      "Create an EMR security configuration with in-transit encryption enabled using PEM certificates stored in Amazon S3, configure at-rest encryption for HDFS using the Amazon S3-managed encryption (SSE-S3) option, and create a KMS key policy with an explicit Deny statement on kms:Decrypt for the root user ARN unless the aws:MultiFactorAuthPresent condition is true.",
+      "Create an EMR security configuration with in-transit encryption enabled using TLS certificates managed by AWS Certificate Manager (ACM), configure at-rest encryption for local disk and HDFS using an AWS KMS CMK with automatic annual key rotation enabled, and add a KMS key policy condition statement that denies all kms:* actions for all principals when aws:MultiFactorAuthPresent is false.",
+      "Create an EMR security configuration with in-transit encryption enabled using PEM certificates stored in an Amazon S3 bucket, configure HDFS at-rest encryption using an AWS KMS CMK with EnableKeyRotation enabled via the KMS API, and add a KMS key policy Deny statement for kms:Decrypt and kms:GenerateDataKey targeting the root user ARN with a condition requiring aws:MultiFactorAuthPresent to be true.",
+      "Create an EMR security configuration with in-transit encryption enabled using PEM certificates, configure HDFS encryption using HDFS Transparent Encryption with an EMR-managed key provider that uses an AWS KMS External Key Store (XKS) backed by an on-premises HSM, enable KMS automatic key rotation on the XKS key, and require MFA by adding a Service Control Policy (SCP) that denies kms:* without MFA for the entire AWS organization."
+    ],
+    "answer": 2,
+    "explanations": [
+      "A – Incorrect. SSE-S3 is S3 object encryption, not HDFS at-rest encryption. HDFS encryption on EMR requires a KMS CMK configured in the EMR security configuration's local disk/HDFS encryption section. SSE-S3 keys are also AWS-managed, not customer-managed with rotation control.",
+      "B – Incorrect. ACM manages TLS certificates for public-facing services and load balancers, not for EMR inter-node TLS. EMR in-transit encryption uses PEM certificates stored in S3 or generated by a custom certificate provider. The KMS policy condition 'deny when MFA is false' is logically equivalent to option C but the ACM error makes this option incorrect.",
+      "C – Correct. EMR security configurations support PEM certificates in S3 for in-transit encryption (between HDFS DataNodes and between YARN nodes). KMS CMK with EnableKeyRotation satisfies automatic key rotation. A Deny policy on kms:Decrypt and kms:GenerateDataKey (the operations EMR uses) for the root ARN unless MFA is present satisfies the MFA requirement without blocking EMR service calls (which use the EMR role, not root).",
+      "D – Incorrect. AWS KMS External Key Store (XKS) with an on-premises HSM is a valid architecture for strict key custody requirements, but it adds significant operational complexity and latency. KMS automatic key rotation is also not supported for XKS keys — key rotation for XKS must be managed at the external key manager. An SCP denying kms:* without MFA would also block all EMR service role KMS calls, breaking encryption entirely."
+    ]
+  },
+  {
+    "id": 79,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A logistics company runs an AWS Glue streaming job that reads from Amazon Kinesis Data Streams, applies stateful aggregations over 10-minute tumbling windows, and writes results to Amazon DynamoDB. After deploying a new version of the job, the team needs to restart it without losing the window state accumulated in the previous version. Which approach preserves stateful window aggregations across job restarts?",
+    "options": [
+      "Before stopping the old job version, write the current in-memory aggregation state for all open windows to an Amazon S3 checkpoint path using the Glue streaming job's built-in state export API, then configure the new job version to read from the same Kinesis stream using the TRIM_HORIZON iterator type and re-process all records from the beginning of the retention window to reconstruct window state before continuing.",
+      "Configure the Glue streaming job to use Spark Structured Streaming checkpointing by setting the checkpointLocation option to an Amazon S3 path, stop the old job version gracefully so Spark flushes the current micro-batch state to the checkpoint, start the new job version pointing to the same S3 checkpoint path, and Spark will automatically recover the window state and resume from the last committed offset.",
+      "Use AWS Glue job bookmarks to record the last Kinesis shard sequence number processed by the old job version, start the new job version with bookmarks enabled so it resumes reading from those sequence numbers, and rely on Kinesis Data Streams record retention to provide the records needed to reconstruct the 10-minute window state.",
+      "Stop the old job version, use the AWS Glue GetJobRun API to retrieve the last checkpoint metadata from the completed job run, pass the checkpoint metadata as a job parameter to the new job version, and write custom deserialization logic in the Glue script to reconstruct the Spark Streaming aggregation state from the metadata before starting window computations."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. AWS Glue streaming jobs do not have a built-in 'state export API'. Re-processing from TRIM_HORIZON would reconstruct window state by replaying records but only if all records are still within the Kinesis retention window (default 24 hours, max 365 days). This approach also delays the new job start and creates duplicate outputs for closed windows.",
+      "B – Correct. Spark Structured Streaming checkpointing is the native mechanism for stateful streaming job recovery. The checkpoint stores micro-batch offsets and aggregation state (including partial window accumulators) in S3. When the new job version starts with the same checkpoint path, Spark reads the state store and resumes exactly where the old job stopped, preserving all open window aggregations.",
+      "C – Incorrect. AWS Glue job bookmarks track S3 file processing state for batch jobs, not Kinesis stream offsets for streaming jobs. Bookmarks are not applicable to Glue streaming jobs and cannot capture window aggregation state.",
+      "D – Incorrect. The GetJobRun API returns job execution metadata (status, error message, start/end time) but not Spark streaming state. Spark streaming state is binary serialized in the checkpoint directory and cannot be reconstructed from job run metadata parameters."
+    ]
+  },
+  {
+    "id": 80,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A company stores 5 years of financial transaction data in Amazon S3 in Parquet format, partitioned by year/month/day. An Amazon Athena workgroup is used for ad-hoc analysis. Queries spanning the full 5-year range consistently take 8-12 minutes. The data team identifies that each daily partition contains thousands of small Parquet files (2-5 MB each) due to the original ingestion pattern. Which optimization reduces full-range query time the most?",
+    "options": [
+      "Enable Amazon Athena query result caching in the workgroup so that repeated identical queries return results from cache without re-scanning S3, create an Amazon CloudFront distribution in front of the Athena query result S3 bucket to reduce result download latency, and increase the Athena workgroup data scanned limit to allow longer-running queries to complete without being cut off.",
+      "Use AWS Glue ETL to compact the small Parquet files within each daily partition into fewer large files (target 128-256 MB each) writing back to the same S3 prefix, update the Glue Data Catalog partition metadata after compaction, add additional partition columns for hour or transaction_type to enable more granular partition pruning in Athena queries, and convert the Parquet row groups to use dictionary encoding for high-cardinality columns.",
+      "Enable Amazon S3 Intelligent-Tiering on the S3 bucket to automatically move infrequently accessed older partition data to lower-cost storage tiers, configure S3 Transfer Acceleration on the bucket to reduce Athena's S3 read latency, and create an Amazon ElastiCache for Redis cluster to cache frequently accessed partition data in memory for sub-second Athena query results.",
+      "Migrate the data from Amazon S3 Parquet to Amazon Redshift using the COPY command with PARQUET format, create a sort key on the transaction_date column and a distribution key on transaction_id, run VACUUM SORT ONLY to physically sort the table, and redirect Athena queries to use Redshift Federated Query to benefit from Redshift's columnar storage and query optimizer."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Athena result caching only helps for repeated identical queries. For ad-hoc analysis with varied query patterns, cache hit rates will be low. CloudFront in front of S3 results does not reduce the query execution time, only the result download time. This option does not address the small file problem.",
+      "B – Correct. The root cause of slow performance is the small file problem: thousands of 2-5 MB files per partition causes Athena to open thousands of S3 connections and file handles, spending most of the query time on S3 LIST and OPEN operations rather than actual data scanning. Compacting to 128-256 MB Parquet files (matching HDFS/S3 block size) reduces S3 API calls by 50-100x. Additional partition columns enable predicate pushdown for more specific queries. Dictionary encoding improves compression and scan speed for high-cardinality columns.",
+      "C – Incorrect. S3 Intelligent-Tiering moves data to lower-cost tiers but may move frequently queried partitions to Archive tiers, increasing latency. ElastiCache cannot cache Athena query execution — Athena reads S3 directly and does not have a Redis integration for data caching.",
+      "D – Incorrect. Migrating 5 years of financial data to Redshift for the purpose of speeding up Athena queries is an architectural overhaul that introduces Redshift cluster costs and data duplication. Federated Query to Redshift from Athena also adds network round-trip overhead. This does not address the stated goal of optimizing Athena query performance on the existing S3 data."
+    ]
+  },
+  {
+    "id": 81,
+    "domain": 3,
+    "difficulty": "moderate",
+    "question": "A company uses AWS Glue crawlers to update the Data Catalog whenever new data lands in Amazon S3. An analyst notices that Athena queries on a table sometimes return stale results — the table schema reflects last week's structure even though new columns were added to the S3 data yesterday. The Glue crawler is scheduled to run nightly at 2 AM. What is the most direct fix?",
+    "options": [
+      "Increase the Glue crawler's Change Detection behavior from UPDATE_IN_DATABASE to CREATE_NEW_TABLE_AS_VERSION so that schema changes create a new table version rather than updating the existing one, and modify Athena queries to specify the table version explicitly using the table version parameter in the Athena workgroup settings.",
+      "Configure the Glue crawler's Schema Change Policy to UPDATE_IN_DATABASE for schema updates and DELETE_FROM_DATABASE for removed partitions, ensure the crawler recrawl option is set to CRAWL_EVERYTHING rather than CRAWL_NEW_FOLDERS_ONLY, and increase crawler frequency to every hour so catalog updates reflect schema changes within 60 minutes of new data landing.",
+      "Replace the nightly crawler with an AWS Glue Data Catalog API call (create_partition or update_table) triggered by an Amazon S3 event notification via Amazon EventBridge, so the catalog is updated within seconds of new data landing in S3, eliminating the 24-hour potential staleness window.",
+      "Enable the Glue Data Catalog's Schema Versioning feature so that when the crawler detects a schema change it creates a new schema version instead of overwriting the existing one, configure Athena to use the latest schema version automatically, and set up an SNS notification from the crawler so analysts are notified when a new schema version is published."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. CREATE_NEW_TABLE_AS_VERSION creates a new table object for each schema change, which would fragment the catalog and require analysts to constantly switch table references. It does not address the staleness — the crawler still runs nightly.",
+      "B – Correct. Setting UPDATE_IN_DATABASE ensures schema changes are applied to the existing table (not ignored). CRAWL_EVERYTHING ensures the crawler re-inspects all files including previously crawled ones. Increasing frequency to hourly reduces the maximum staleness from 24 hours to 1 hour, which is the most direct fix within the crawler-based architecture.",
+      "C – Incorrect. S3 event-driven catalog updates via EventBridge and Glue API calls are a more real-time solution, but require custom Lambda/EventBridge logic and are significantly more complex to implement than increasing crawler frequency. The question asks for the most direct fix.",
+      "D – Incorrect. Schema Versioning in the Glue Data Catalog records historical schema versions for auditing but does not change when or how often the crawler updates the catalog. Staleness is still determined by crawler schedule frequency."
+    ]
+  },
+  {
+    "id": 82,
+    "domain": 1,
+    "difficulty": "moderate",
+    "question": "A company needs to replicate an on-premises MySQL database to Amazon S3 in near-real-time for analytics. The MySQL database has 200 tables and receives 5,000 transactions per minute. The analytics team needs data in S3 within 60 seconds of a commit. Which AWS service combination achieves this with the least custom code?",
+    "options": [
+      "Use Amazon Database Migration Service (DMS) with a MySQL source endpoint and an Amazon S3 target endpoint, enable Change Data Capture (CDC) using the DMS binary log reading method, configure the DMS task to use Full Load + CDC mode, set the CdcInsertsAndUpdates task setting to true, and configure the S3 endpoint to write CDC changes as Parquet files with a 60-second flush interval.",
+      "Deploy an AWS Glue streaming job that connects to the MySQL binary log using the Debezium MySQL connector, transforms the CDC events, and writes them to S3 as JSON files partitioned by database/table/hour, with a Spark Structured Streaming trigger interval of 30 seconds to meet the 60-second SLA.",
+      "Configure AWS Lambda functions triggered by Amazon RDS Event Notifications for each of the 200 tables, have each Lambda function execute a SELECT query on the changed rows using the binlog position recorded in the event notification, write the results to S3 as newline-delimited JSON, and schedule a Step Functions state machine to coordinate the Lambda execution order.",
+      "Use Amazon Kinesis Data Streams with a custom on-premises Kinesis Agent configured to tail the MySQL binary log file, parse each binlog event into a JSON record, publish it to Kinesis, and configure an Amazon Kinesis Data Firehose delivery stream to buffer and deliver the records to S3 with a 60-second buffer interval."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. AWS DMS with a MySQL source using binary log CDC and an S3 target is the purpose-built, fully managed solution for this use case. DMS handles binary log reading, connection management, and S3 delivery without custom code. The 60-second flush interval on the S3 endpoint satisfies the latency requirement. Full Load + CDC mode handles the initial copy and ongoing replication.",
+      "B – Incorrect. AWS Glue does not natively support the Debezium MySQL connector. Glue streaming jobs use Kinesis or Kafka as sources. Building a Debezium-based CDC pipeline requires custom code and infrastructure outside of Glue.",
+      "C – Incorrect. RDS Event Notifications do not provide row-level change events or binlog positions. They notify about instance-level events (failover, maintenance). This approach would require custom binlog parsing logic and would not scale to 200 tables with 5,000 transactions/minute.",
+      "D – Incorrect. There is no AWS-managed 'Kinesis Agent for MySQL binlog'. The standard Kinesis Agent tails log files on Linux but cannot parse MySQL binary logs natively. This would require significant custom code to implement the binlog parsing and Kinesis publishing logic."
+    ]
+  },
+  {
+    "id": 83,
+    "domain": 4,
+    "difficulty": "moderate",
+    "question": "A data engineer discovers that an AWS Glue ETL job reading from Amazon S3 and writing to Amazon Redshift has been running with an IAM role that has AdministratorAccess. The security team requires this to be remediated immediately using least-privilege principles. Which set of permissions represents the minimum required for this Glue job?",
+    "options": [
+      "Grant the Glue job role: glue:* on all Glue resources, s3:GetObject and s3:ListBucket on the source S3 bucket and prefix ARN, redshift:* on the Redshift cluster ARN, redshift-data:ExecuteStatement and redshift-data:GetStatementResult on the Redshift cluster, and logs:CreateLogGroup and logs:PutLogEvents on the CloudWatch Logs ARN for the Glue job log group.",
+      "Grant the Glue job role: s3:GetObject and s3:ListBucket on the specific source S3 bucket and prefix, redshift:GetClusterCredentials on the specific Redshift cluster ARN with a DbUser condition matching the Glue job's database user, s3:PutObject on the Redshift COPY staging S3 path if used, and logs:CreateLogGroup, logs:CreateLogStream, and logs:PutLogEvents on the specific Glue job CloudWatch log group ARN.",
+      "Grant the Glue job role: AWSGlueServiceRole managed policy which includes all necessary Glue, S3, CloudWatch, and EC2 permissions, plus an inline policy adding redshift:GetClusterCredentials and redshift:CreateClusterUser on the specific Redshift cluster ARN to allow the Glue connection to authenticate to Redshift.",
+      "Grant the Glue job role: s3:* on the source and target S3 buckets, redshift:DescribeClusters and redshift:GetClusterCredentials on all Redshift clusters in the region, glue:GetTable and glue:GetDatabase on the Glue Data Catalog, and SecretsManager:GetSecretValue on the Secrets Manager ARN storing the Redshift password, as this is the minimum needed for a standard Glue-to-Redshift job."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. glue:* on all Glue resources and redshift:* on the cluster are far broader than needed. Glue job execution does not require administrative Glue API permissions, and redshift:* includes cluster management actions that an ETL job has no reason to perform.",
+      "B – Correct. This is the minimum set: read-only S3 access scoped to the exact source prefix, GetClusterCredentials scoped to the specific cluster with a DbUser condition limiting which database user can be obtained, S3 write access to the staging path if COPY is used, and CloudWatch Logs write access scoped to the job's own log group. No administrative or wildcard permissions are needed.",
+      "C – Incorrect. AWSGlueServiceRole is an AWS managed policy designed for broad Glue service use cases. It grants S3 access to all buckets with 'glue' in the name plus other broad permissions — not least-privilege for a specific job. Using managed policies without scoping is the type of over-permissioning the security team is trying to remediate.",
+      "D – Incorrect. s3:* on multiple buckets includes s3:DeleteObject, s3:PutBucketPolicy, and other destructive actions not needed for a read job. redshift:GetClusterCredentials on all clusters in the region violates least-privilege. SecretsManager access may not be needed if the Glue connection uses GetClusterCredentials with IAM auth instead of a stored password."
+    ]
+  },
+  {
+    "id": 84,
+    "domain": 2,
+    "difficulty": "moderate",
+    "question": "A company has an Amazon Aurora MySQL database serving an OLTP application. The analytics team wants to run complex reporting queries on the same data without impacting OLTP performance. The queries involve full table scans and multi-table joins on tables with tens of millions of rows. Which solution provides query isolation with the least impact on the OLTP workload?",
+    "options": [
+      "Create an Aurora Read Replica of the production Aurora MySQL cluster, direct all reporting queries to the read replica endpoint, enable the Performance Insights feature on the read replica to monitor query execution, and scale the read replica instance class independently from the writer instance to provide additional compute for complex analytical queries.",
+      "Enable Amazon Aurora Zero-ETL integration with Amazon Redshift, configure the integration to replicate changes from the Aurora MySQL cluster to a Redshift database in near-real-time, and redirect all reporting queries to Amazon Redshift, where the columnar storage and MPP architecture provide significantly better performance for complex analytical queries than Aurora Read Replicas.",
+      "Create an Amazon RDS snapshot of the Aurora MySQL cluster every 4 hours, restore each snapshot to a new temporary Aurora MySQL cluster, run reporting queries against the temporary cluster, and terminate the cluster after queries complete, ensuring zero OLTP impact and using the latest snapshot data for reporting.",
+      "Use AWS Database Migration Service (DMS) to create a continuous replication task from Aurora MySQL to a separate Amazon RDS MySQL instance provisioned with a large instance class, configure the RDS MySQL instance with read_only=1 and innodb_buffer_pool_size optimized for analytical workloads, and direct all reporting queries to this dedicated analytical RDS MySQL instance."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Aurora Read Replicas provide query isolation but MySQL's row-oriented storage is fundamentally ill-suited for complex analytical queries with full table scans and multi-table joins. The read replica would need a much larger instance class than the OLTP writer, and query performance would still be far inferior to a columnar store.",
+      "B – Correct. Aurora Zero-ETL integration with Redshift replicates data continuously without requiring custom ETL pipelines or DMS tasks. Redshift's MPP columnar storage is designed specifically for the complex analytical query patterns described. This provides both query isolation (separate Redshift cluster) and dramatically better analytical query performance.",
+      "C – Incorrect. Creating a snapshot every 4 hours means reporting data is up to 4 hours stale. Restoring snapshots is a slow operation (20-30 minutes for large databases). This approach introduces high operational overhead and unacceptable data freshness for most analytics use cases.",
+      "D – Incorrect. RDS MySQL with a large buffer pool is still row-oriented storage. Complex analytical queries on tens of millions of rows will perform similarly poorly regardless of buffer pool size. DMS continuous replication also adds operational overhead and lag compared to Aurora Zero-ETL integration."
+    ]
+  },
+  {
+    "id": 85,
+    "domain": 1,
+    "difficulty": "moderate",
+    "question": "A data engineer needs to ingest CSV files dropped into an Amazon S3 bucket by an external partner, validate them against a schema, transform them, and load them into Amazon Redshift. Files arrive unpredictably throughout the day, ranging from 1 file to 100 files per hour. Which orchestration approach handles variable file arrival with the least infrastructure management?",
+    "options": [
+      "Create an Amazon EventBridge rule that matches S3 PutObject events for the partner bucket prefix, configure the rule to trigger an AWS Step Functions state machine that invokes an AWS Glue ETL job for each file, pass the S3 object key as a job parameter to the Glue job, and use Step Functions error handling to retry failed jobs and send failure notifications via Amazon SNS.",
+      "Deploy an Amazon EC2 instance running a cron job every 5 minutes that lists new files in the S3 bucket using the AWS CLI, downloads each file, validates it against the expected schema using a Python script, uploads the validated file to a processed prefix, and triggers an AWS Glue crawler to update the Data Catalog before a scheduled Glue ETL job runs every 15 minutes.",
+      "Configure an Amazon S3 event notification on the partner bucket to publish PutObject events to an Amazon SQS queue, create an AWS Lambda function triggered by the SQS queue that validates each CSV file, writes valid files to a staging S3 prefix, and invokes an AWS Glue job for bulk transformation and Redshift loading once a batch threshold of 50 files or 15 minutes elapses.",
+      "Use Amazon Managed Workflows for Apache Airflow (MWAA) with an S3 sensor operator polling the partner bucket every 60 seconds for new files, trigger a Glue operator task for each detected file, use Airflow XComs to pass file metadata between tasks, and configure Airflow retries and SLA miss alerts for the pipeline."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. EventBridge S3 event → Step Functions is a fully serverless, event-driven pattern that scales automatically from 1 to 100+ files per hour without any infrastructure management. Each file gets its own state machine execution, providing per-file visibility, retry logic, and error handling. No polling or batch accumulation logic is required.",
+      "B – Incorrect. An EC2-based cron job requires managing the EC2 instance, handling instance failures, scaling during high-volume periods, and paying for idle compute when no files arrive. This is the highest infrastructure management burden of all options.",
+      "C – Incorrect. This is a valid serverless approach, but the batch threshold logic (50 files or 15 minutes) introduces complexity and latency. Files arriving alone would wait up to 15 minutes. The question asks for least infrastructure management, and option A's direct per-file event-driven pattern is simpler.",
+      "D – Incorrect. Amazon MWAA requires managing an Airflow environment (instance type selection, version upgrades, worker scaling). Polling-based S3 sensors generate frequent API calls. For a simple file-triggered pipeline, MWAA adds operational overhead that is not justified compared to native AWS event-driven services."
+    ]
+  },
+  {
+    "id": 86,
+    "domain": 3,
+    "difficulty": "moderate",
+    "question": "A company runs Amazon Athena queries on a data lake in Amazon S3. The data lake team notices that monthly costs for Athena are much higher than expected. Analysis shows that most queries scan the entire dataset even when filtering on a date column. The data is stored as Parquet files but is not partitioned. What change reduces Athena scan costs the most?",
+    "options": [
+      "Enable Amazon S3 Requester Pays on the data lake bucket so that Athena query costs are billed to the workgroup that initiates the query rather than the bucket owner, create per-workgroup data scan limits in Athena to prevent runaway queries, and configure Athena query result reuse with a 24-hour TTL to avoid re-scanning data for repeated identical queries.",
+      "Partition the S3 data by the date column (e.g., year/month/day prefix structure), update the AWS Glue Data Catalog table to include the partition columns, use MSCK REPAIR TABLE or add partitions via Glue crawler to register existing partitions, and rewrite queries to include WHERE clauses on the partition columns so Athena prunes irrelevant partitions and scans only relevant date ranges.",
+      "Convert the Parquet files from SNAPPY compression to ZSTD compression to reduce file sizes by approximately 20%, enable S3 Transfer Acceleration to reduce data transfer latency from S3 to Athena compute nodes, and use Athena workgroup settings to set a per-query data scanned limit of 10 GB to enforce cost controls on individual queries.",
+      "Enable Amazon S3 Intelligent-Tiering on the data lake bucket so that infrequently accessed Parquet files are moved to lower-cost storage tiers, create an Athena workgroup with an Amazon S3 output location in a separate account to avoid cross-account data transfer charges, and use Amazon QuickSight SPICE to cache frequently queried datasets and reduce the number of Athena queries executed."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. S3 Requester Pays changes billing responsibility but does not reduce the amount of data scanned. Athena charges are based on bytes scanned, not who pays — the cost exists regardless of payment assignment. Query result reuse helps for repeated identical queries but not for varied ad-hoc analysis.",
+      "B – Correct. Partitioning by the date column is the single most impactful optimization for this scenario. Athena uses partition pruning to skip entire S3 prefixes when WHERE clauses on partition columns exclude them. A query filtering on a single week would scan only 7 daily partitions instead of the entire dataset, potentially reducing scanned bytes (and cost) by 90%+.",
+      "C – Incorrect. ZSTD compression reduces file size (thus bytes scanned) by 15-25% compared to Snappy, which is a modest improvement. S3 Transfer Acceleration reduces latency but does not reduce bytes scanned. A 10 GB per-query limit enforces cost control but does not optimize query efficiency.",
+      "D – Incorrect. S3 Intelligent-Tiering moves data to lower-cost storage classes but does not reduce Athena scan bytes — Athena is billed on bytes scanned regardless of storage tier. QuickSight SPICE reduces query frequency but does not address the underlying full-table scan problem."
+    ]
+  },
+  {
+    "id": 87,
+    "domain": 4,
+    "difficulty": "moderate",
+    "question": "A company's data lake on Amazon S3 contains tables managed by AWS Lake Formation. A new data science team needs read access to two specific tables but must not be able to read any other tables or directly access the underlying S3 buckets. An IAM administrator has already created an IAM role for the data science team. What is the correct way to grant this access in Lake Formation?",
+    "options": [
+      "Add a resource-based policy to each of the two S3 bucket prefixes backing the target tables that allows the data science IAM role to perform s3:GetObject and s3:ListBucket, register the IAM role in Lake Formation as a data lake administrator, and grant the role SELECT permission on the two tables in the Glue Data Catalog using the Lake Formation console.",
+      "In the Lake Formation console, grant the data science IAM role SELECT permission on the specific two Glue Data Catalog tables (database and table level), ensure the IAM role does not have any direct S3 bucket permissions, and verify that the Lake Formation data location permissions for the underlying S3 paths are registered and that the service role used by Lake Formation has s3:GetObject on those paths.",
+      "Create an IAM policy document that allows glue:GetTable and glue:GetPartitions on the two specific table ARNs and s3:GetObject on the two specific S3 prefix ARNs backing those tables, attach the policy to the data science IAM role, and use Lake Formation's cross-account sharing feature to share the two tables with the data science team's AWS account.",
+      "Use AWS Resource Access Manager (RAM) to share the two Glue Data Catalog tables with the data science team's IAM role, grant the IAM role AmazonAthenaFullAccess and AWSGlueConsoleFullAccess managed policies so they can query the shared tables using Athena, and configure Lake Formation to use the IAMAllowedPrincipals grant for the two tables to defer access control back to IAM."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Direct S3 bucket policy permissions bypass Lake Formation's access control. If the IAM role has direct S3 access, it can access the raw data files without going through Lake Formation, which defeats the purpose of using Lake Formation for governance. Lake Formation is designed so that data lake access goes through Lake Formation permissions, not direct S3 policies.",
+      "B – Correct. The correct Lake Formation pattern is: grant table-level SELECT in Lake Formation (not S3 bucket policies), ensure the IAM role has NO direct S3 permissions (Lake Formation generates temporary vended credentials for S3 access), and ensure Lake Formation's own service role has the S3 permissions to serve data on behalf of authorized principals. This enforces access through the governance layer.",
+      "C – Incorrect. Granting direct S3 GetObject permissions to the IAM role bypasses Lake Formation. IAM policies for Glue table metadata access alone are insufficient — Lake Formation controls data access through a vended credentials model, not direct IAM-to-S3 access.",
+      "D – Incorrect. IAMAllowedPrincipals in Lake Formation defers access control back to IAM, which means Lake Formation permissions are not enforced. This would allow the role to access any table that its IAM policies permit. AWSGlueConsoleFullAccess grants far more than needed, violating least-privilege."
+    ]
+  },
+  {
+    "id": 88,
+    "domain": 2,
+    "difficulty": "easy",
+    "question": "A company needs to store 100 TB of infrequently accessed archival data that must be retrievable within 12 hours. The data is written once and never modified. Cost is the primary concern. Which Amazon S3 storage class is most appropriate?",
+    "options": [
+      "Amazon S3 Standard, because it provides the highest durability (99.999999999%) and fastest retrieval times, ensuring the data is always available within milliseconds when needed, and the higher per-GB storage cost is justified by the reliability guarantees for critical archival data.",
+      "Amazon S3 Glacier Flexible Retrieval with Bulk retrieval option, because it provides the lowest per-GB storage cost for archival data with a bulk retrieval time of 5-12 hours that meets the 12-hour SLA, and is designed for data that is accessed once or twice per year.",
+      "Amazon S3 Intelligent-Tiering, because it automatically moves data between access tiers based on usage patterns, optimizing costs without requiring manual lifecycle policy management, and provides immediate retrieval for data in the frequent access tier without retrieval fees.",
+      "Amazon S3 One Zone-Infrequent Access, because storing data in a single Availability Zone reduces storage costs by 20% compared to S3 Standard-IA while still providing millisecond retrieval, and the lower redundancy is acceptable for archival data that can be regenerated if lost."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. S3 Standard is the most expensive storage class and is optimized for frequently accessed data requiring millisecond retrieval. For infrequently accessed archival data, the higher cost is not justified.",
+      "B – Correct. S3 Glacier Flexible Retrieval is purpose-built for archival data accessed once or twice per year. Bulk retrieval (5-12 hours) meets the 12-hour SLA and is the lowest-cost retrieval option. It has significantly lower per-GB storage cost than S3 Standard or S3-IA.",
+      "C – Incorrect. S3 Intelligent-Tiering is cost-effective for data with unpredictable access patterns, but for data that is known to be infrequently accessed, directly using S3 Glacier avoids the Intelligent-Tiering monitoring fee and achieves lower storage costs.",
+      "D – Incorrect. S3 One Zone-IA stores data in a single AZ, which means data would be lost if that AZ suffers a complete failure. For archival data that is 'never modified' and presumably irreplaceable, reduced durability is not an acceptable trade-off."
+    ]
+  },
+  {
+    "id": 89,
+    "domain": 3,
+    "difficulty": "easy",
+    "question": "An AWS Glue ETL job is failing with an OutOfMemoryError when processing a dataset that has grown from 50 GB to 500 GB over the past year. The job currently uses G.1X workers. What is the first change to make?",
+    "options": [
+      "Add a LIMIT clause to the Glue DynamicFrame filter operations to reduce the amount of data loaded into memory at once, enable Glue job bookmarks to process only the newest 50 GB increment in each run rather than the full 500 GB, and set the Spark configuration spark.executor.memory to 8g to increase the per-executor heap size within the existing G.1X worker memory budget.",
+      "Increase the Glue worker type from G.1X (4 vCPU, 16 GB) to G.2X (8 vCPU, 32 GB) workers to double the available memory per executor, and increase the number of workers proportionally to maintain the same level of parallelism, allowing the job to process the larger dataset without running out of memory.",
+      "Migrate the Glue ETL job from Spark to Glue's Ray runtime, which uses a distributed object store instead of Spark's in-memory RDD model, eliminating OutOfMemoryErrors by streaming data through the pipeline rather than materializing entire datasets in memory across all workers simultaneously.",
+      "Enable Glue job auto-scaling so the job can dynamically add up to 100 G.1X workers during memory-intensive phases, set the Spark configuration spark.memory.fraction to 0.9 to dedicate 90% of JVM heap to Spark execution memory, and enable disk spill by setting spark.memory.storageFraction to 0.1 to allow Spark to write overflow data to local SSD."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Adding LIMIT to DynamicFrame operations would produce incomplete results — you cannot truncate the dataset to fit memory. Job bookmarks track processed files but would still need to process the 500 GB eventually. Overriding spark.executor.memory on G.1X workers cannot exceed the physical worker memory.",
+      "B – Correct. Upgrading from G.1X to G.2X doubles per-executor memory from 16 GB to 32 GB. This is the simplest, most direct fix for an OOM error caused by dataset growth. It requires no code changes and immediately addresses the root cause.",
+      "C – Incorrect. Glue's Ray runtime is designed for Python-based ML workloads, not as a general replacement for Spark ETL jobs. Migrating to Ray would require rewriting the entire ETL job and is far more effort than a worker type upgrade.",
+      "D – Incorrect. Auto-scaling adds more G.1X workers but does not increase per-executor memory. If the OOM is caused by a single operation that requires more than 16 GB (e.g., a large join or sort), adding more workers does not help — the individual task still exceeds per-executor memory."
+    ]
+  },
+  {
+    "id": 90,
+    "domain": 1,
+    "difficulty": "easy",
+    "question": "A company needs to move 80 TB of historical data from an on-premises NFS server to Amazon S3 over a 1 Gbps internet connection. The transfer must complete within 5 days. The on-premises server has a public IP. Which service is most appropriate?",
+    "options": [
+      "Use the AWS CLI s3 sync command with the --multipart-threshold flag set to 100 MB and --max-concurrent-requests set to 20 to maximize upload parallelism over the existing 1 Gbps internet connection, scheduling the transfer during off-peak hours to avoid impacting business internet traffic.",
+      "Use AWS DataSync with an on-premises DataSync agent deployed near the NFS server, create a DataSync task with the source as the NFS location and destination as the S3 bucket, enable DataSync's built-in network optimization and data verification, and run the task to transfer data using all available bandwidth on the 1 Gbps connection.",
+      "Order an AWS Snowball Edge Storage Optimized device, copy the 80 TB of data to the device over the local network at speeds up to 10 Gbps, ship the device to AWS, and AWS will import the data into S3 within 5-7 business days after receiving the device.",
+      "Enable Amazon S3 Transfer Acceleration on the destination S3 bucket, configure the on-premises NFS server to mount the S3 bucket as a FUSE filesystem using s3fs, and use rsync to copy files from the NFS server to the S3 FUSE mount, which routes traffic through Amazon CloudFront edge locations to maximize transfer throughput."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. A 1 Gbps connection can theoretically transfer ~540 GB/hour or ~64 TB in 5 days under ideal conditions. 80 TB would take approximately 6.25 days at 100% utilization. In practice, TCP overhead, retransmissions, and business traffic sharing make this unreliable for a 5-day deadline. The AWS CLI also lacks DataSync's error recovery and resumability for large transfers.",
+      "B – Correct. AWS DataSync is purpose-built for large-scale data transfers. It maximizes available bandwidth with parallel multi-part transfers, includes automatic retry and data integrity verification (checksums), and can saturate the 1 Gbps connection. At full 1 Gbps, 80 TB transfers in approximately 6.25 days, but DataSync's parallel transfer capability often exceeds nominal bandwidth, and the 5-day window is achievable with a fast enough local network.",
+      "C – Incorrect. Snowball Edge physical shipping takes 5-7 business days after receipt of the device at AWS — this timeline does not meet the 5-day total completion requirement. Snowball is appropriate when internet bandwidth is insufficient, but with a 1 Gbps connection, DataSync is faster.",
+      "D – Incorrect. s3fs (FUSE) mounts S3 as a filesystem but is not designed for bulk transfer workloads — it is slow, has high API call overhead, and is not reliable for 80 TB transfers. S3 Transfer Acceleration helps for internet transfers but does not overcome the fundamental limitations of s3fs."
+    ]
+  },
+  {
+    "id": 91,
+    "domain": 2,
+    "difficulty": "easy",
+    "question": "A company stores customer order data in Amazon DynamoDB. A marketing application reads individual customer records by customer_id millions of times per day. Occasionally it also runs a query that scans all orders for a specific product_category. The scan queries are slow and consume excessive read capacity. What should the data engineer recommend?",
+    "options": [
+      "Enable DynamoDB Accelerator (DAX) in front of the DynamoDB table to cache both GetItem responses for individual customer reads and Scan results for product_category queries, reducing read latency from milliseconds to microseconds for cached reads and significantly reducing consumed read capacity units for repeated identical scan queries.",
+      "Create a Global Secondary Index (GSI) with product_category as the partition key, project the required order attributes into the GSI, and update the marketing application to query the GSI using a Query operation instead of a Scan on the base table, reducing the consumed read capacity to only the items matching the queried product_category.",
+      "Switch the DynamoDB table from provisioned capacity mode to on-demand capacity mode so that the table automatically scales to handle the variable read workload from both individual customer reads and product_category scan queries without consuming provisioned capacity units or throttling any request.",
+      "Enable DynamoDB Streams on the table, use an AWS Lambda function triggered by the stream to copy all new and updated order records to an Amazon OpenSearch Service domain indexed by product_category, and redirect all product_category queries from DynamoDB to OpenSearch, leaving individual customer reads on DynamoDB."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. DAX caches reads and reduces capacity consumption for cached items, but it does not fix the underlying inefficiency of scanning the full table for product_category queries. A Scan on a large table still consumes all the read capacity for the initial (uncached) scan, and different product_category values each require their own full scan.",
+      "B – Correct. A GSI on product_category converts the expensive full-table Scan into a targeted Query operation that reads only the items belonging to that category. Query is dramatically more efficient than Scan for selective lookups, consuming only the capacity proportional to the result set size rather than the entire table.",
+      "C – Incorrect. On-demand mode eliminates provisioning decisions and handles variable traffic, but it does not improve query efficiency. A Scan on a large table in on-demand mode still consumes read capacity proportional to the full table size — on-demand mode just bills you per request unit rather than reserved capacity.",
+      "D – Incorrect. Lambda + OpenSearch is a valid architecture for full-text search use cases, but it adds significant operational complexity (OpenSearch cluster management, Lambda stream processing, index management) for what is essentially a structured category filter. A GSI achieves the same result with zero additional infrastructure."
+    ]
+  },
+  {
+    "id": 92,
+    "domain": 4,
+    "difficulty": "easy",
+    "question": "A data engineer is creating an AWS Glue job that reads sensitive PII data from Amazon S3 and writes masked output back to a different S3 bucket. The security team requires that the PII data in the source bucket be encrypted at rest using keys that the company controls, with all key usage logged. Which encryption option satisfies this requirement?",
+    "options": [
+      "Enable Amazon S3 server-side encryption with S3-managed keys (SSE-S3) on the source bucket, which automatically encrypts all objects at rest using AES-256 encryption managed by AWS, provides 99.999999999% durability for the encryption keys, and requires no additional configuration or cost beyond standard S3 storage.",
+      "Enable Amazon S3 server-side encryption with AWS KMS customer-managed keys (SSE-KMS) on the source bucket, create a customer-managed KMS key (CMK) with key usage logging enabled in AWS CloudTrail, configure the S3 bucket default encryption to use the CMK, and review CloudTrail logs to audit every S3 object encryption and decryption event.",
+      "Enable Amazon S3 client-side encryption in the Glue ETL job by implementing a custom encryption provider that generates AES-256 keys stored in the Glue job parameters, encrypts each S3 object before upload using the AWS Encryption SDK, and stores the encrypted data keys alongside each object as S3 metadata for future decryption.",
+      "Enable Amazon Macie on the source S3 bucket to automatically detect and classify PII data, configure Macie to apply server-side encryption to any object it identifies as containing PII using an S3-managed key, and set up Macie findings to trigger an AWS Lambda function that re-encrypts unencrypted objects discovered during bucket scanning."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. SSE-S3 uses AWS-managed keys, not customer-managed keys. The company has no control over key rotation, key policy, or key usage auditing. SSE-S3 does not log key usage in CloudTrail.",
+      "B – Correct. SSE-KMS with a customer-managed CMK (also called a customer-managed key, CMK) gives the company full control: they manage the key policy (who can use it), can enable/disable the key, control rotation, and every KMS API call (GenerateDataKey, Decrypt) is logged automatically in AWS CloudTrail, satisfying the key usage logging requirement.",
+      "C – Incorrect. Storing encryption keys in Glue job parameters is insecure — job parameters are visible in the Glue console and logs. Client-side encryption with self-managed keys also puts the entire key management burden on the team without the audit trail provided by KMS CloudTrail logging.",
+      "D – Incorrect. Macie is a data discovery and classification service — it identifies PII but does not encrypt data. Macie cannot apply encryption to S3 objects. The Lambda re-encryption approach would be a complex custom solution when SSE-KMS achieves the same goal natively."
+    ]
+  },
+  {
+    "id": 93,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A company processes stock market tick data using Amazon Kinesis Data Streams. Each tick event is about 500 bytes. The stream receives 100,000 events per second at peak. A downstream AWS Lambda consumer must process each event within 500 milliseconds of arrival. The Lambda function currently uses the default batch size of 100 and is seeing average processing latency of 3-4 seconds end-to-end. The stream has 10 shards. What changes reduce end-to-end latency to under 500 ms?",
+    "options": [
+      "Increase the number of Kinesis shards from 10 to 50 to distribute the 100,000 events/second more evenly across more shards, increase the Lambda batch size to 1,000 to process more records per invocation, and enable Kinesis enhanced fan-out so the Lambda consumer receives records via HTTP/2 push with 70ms p99 delivery latency instead of GetRecords polling with 200ms average latency.",
+      "Reduce the Lambda event source mapping batch size from 100 to 1 so Lambda is invoked for every single record, disable Lambda function provisioned concurrency warm-up so cold starts are minimized by keeping functions warm, and switch the Kinesis stream from standard iterators to enhanced fan-out with a dedicated 2 MB/s per-shard throughput pipe for the Lambda consumer.",
+      "Enable Kinesis Data Streams enhanced fan-out for the Lambda consumer to replace the default 200ms polling interval with sub-70ms HTTP/2 push delivery, set the Lambda event source mapping bisect-on-error option to true, increase Lambda reserved concurrency to 1,000, and set the batch size to 10 with a maximum batching window of 0 seconds to minimize accumulation delay.",
+      "Switch from Amazon Kinesis Data Streams to Amazon Kinesis Data Firehose, configure Firehose to buffer records for 60 seconds before delivering to an AWS Lambda transformation function, increase the Lambda function memory to 10,240 MB to maximize CPU allocation for faster per-record processing, and use Firehose's built-in retry mechanism to re-process any records that exceed the 500ms processing window."
+    ],
+    "answer": 2,
+    "explanations": [
+      "A – Incorrect. Increasing shards and batch size would increase throughput but not reduce latency. Larger batches accumulate more records before Lambda is invoked, increasing latency. Enhanced fan-out is correctly identified but combined with a larger batch size works against the latency goal.",
+      "B – Incorrect. Batch size of 1 means Lambda is invoked once per record, which minimizes batching latency but creates 100,000 Lambda invocations per second — far exceeding concurrency limits and Kinesis iterator efficiency. Disabling provisioned concurrency increases cold start risk, not decreases it.",
+      "C – Correct. Enhanced fan-out eliminates the 200ms polling delay by pushing records to Lambda via HTTP/2 within ~70ms of arrival. A batch size of 10 with a 0-second batching window means Lambda is invoked as soon as 10 records are available (or immediately on each push), minimizing accumulation delay. High reserved concurrency prevents throttling. This combination targets sub-500ms end-to-end latency.",
+      "D – Incorrect. Kinesis Data Firehose has a minimum buffer interval of 60 seconds, which completely violates the 500ms SLA. Firehose is designed for high-throughput delivery to storage destinations, not for low-latency event processing."
+    ]
+  },
+  {
+    "id": 94,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A healthcare company uses Amazon Redshift to store patient encounter records. The compliance team requires that any analyst who runs a query accessing a patient's date_of_birth or ssn columns must be identified, and those columns must appear masked (showing only last 4 digits) for analysts in the 'reporting' role while appearing unmasked for analysts in the 'clinical' role. Both roles use the same Redshift table. Which Redshift feature implements this with no application code changes?",
+    "options": [
+      "Create two separate Amazon Redshift views of the patient table — one view for the 'reporting' role that uses the REGEXP_REPLACE function to mask ssn and a DATEADD expression to obscure date_of_birth, and one view for the 'clinical' role that selects all columns unmasked — then grant each role SELECT permission only on their respective view and revoke SELECT on the base table from both roles.",
+      "Use Amazon Redshift Dynamic Data Masking (DDM) to create masking policies for the ssn and date_of_birth columns, define a masking expression that returns the last 4 digits of ssn and a static placeholder for date_of_birth for principals with the 'reporting' role, and attach the masking policies to the table columns, leaving them unmasked (null masking expression) for the 'clinical' role, so both roles query the same table and see role-appropriate values.",
+      "Enable Amazon Redshift Row-Level Security (RLS) policies on the patient table, create an RLS policy that filters rows based on the querying user's role stored in a user_roles lookup table, and use the RLS policy to return only de-identified rows (with ssn and date_of_birth redacted) to 'reporting' role users while returning full rows to 'clinical' role users.",
+      "Create an Amazon Redshift stored procedure that accepts the analyst's role as an input parameter, dynamically constructs a SELECT statement with conditional masking expressions using CASE WHEN SESSION_USER IN (SELECT user FROM reporting_role_members) THEN REGEXP_REPLACE(ssn,...) ELSE ssn END, and require all analysts to execute the stored procedure instead of direct table queries to enforce masking."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. The two-view approach works but requires application code or query changes — analysts must know to query their role-specific view rather than the base table. The question specifies 'no application code changes', meaning both roles must query the same object.",
+      "B – Correct. Amazon Redshift Dynamic Data Masking (DDM) is purpose-built for this exact requirement. Masking policies are attached to columns and automatically applied based on the querying principal's role at query time — no view changes, no stored procedures, no application code changes. The 'clinical' role gets unmasked values; the 'reporting' role gets the masked expression applied transparently.",
+      "C – Incorrect. Row-Level Security controls which rows a user can see, not which column values are masked. RLS cannot selectively mask column values — it can only include or exclude entire rows from a result set.",
+      "D – Incorrect. Requiring analysts to use a stored procedure instead of direct table queries is a process control, not a technical enforcement mechanism. An analyst with SELECT on the base table could bypass the stored procedure entirely. This also requires changing how analysts query data, violating the 'no application code changes' requirement."
+    ]
+  },
+  {
+    "id": 95,
+    "domain": 3,
+    "difficulty": "hard",
+    "question": "A company's data lake ingestion pipeline runs as an AWS Step Functions state machine orchestrating multiple AWS Glue jobs and Lambda functions. The pipeline processes data for 50 different clients, each with their own state machine execution triggered nightly. On some nights, 8-10 executions fail silently — the state machine shows SUCCEEDED but the Glue job within it wrote 0 records to S3. There are no Step Functions or Glue job failures. How should the data engineer detect and alert on this silent data quality failure?",
+    "options": [
+      "Add an Amazon CloudWatch alarm on the AWS Glue metric glue.driver.aggregate.recordsWritten for each client's Glue job, set the alarm threshold to trigger when the metric value is below 1 for any 5-minute evaluation period during the nightly run window, and configure the alarm to send an SNS notification to the on-call data engineer when triggered.",
+      "Add a validation Lambda function state in the Step Functions state machine that runs after each Glue job and queries the S3 output location using an AWS SDK list_objects_v2 call, fails the state machine execution with a custom error code if the object count or total size is zero, and configure a Step Functions EventBridge rule to route FAILED executions to an SNS topic for alerting.",
+      "Enable AWS Glue Data Quality checks on the output DynamicFrame within each Glue job script to validate that the record count is greater than zero before committing the write, configure the Glue job to fail with exit code 1 when the data quality check fails, and set the Step Functions Glue job state's Catch configuration to route failures to an SNS notification state.",
+      "Add an Amazon EventBridge rule that triggers a validation AWS Lambda function 30 minutes after each Step Functions execution completes, have the Lambda function query the AWS Glue job run history using GetJobRun API to retrieve the outputFilesCount metric, compare it to the previous night's count using a value stored in Amazon DynamoDB, and send an SNS alert if the count drops below 50% of the historical average."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. The Glue metric glue.driver.aggregate.recordsWritten is emitted per job run but the timing and granularity make it difficult to correlate with specific client executions. More importantly, a 0-record write may not produce a metric at all (the metric only emits when records are written). A CloudWatch alarm on absence of a metric is unreliable.",
+      "B – Correct. Adding an explicit validation state in the state machine that checks the S3 output directly makes the 0-record failure visible to Step Functions. The state machine will now FAIL instead of silently SUCCEED, and existing Step Functions EventBridge alerting can catch FAILED executions. This closes the silent failure gap with minimal code and uses the already-available Step Functions failure routing.",
+      "C – Incorrect. Glue Data Quality checks inside the job script are a valid approach, but they require modifying 50 Glue job scripts. The check must happen before the write, not after, to prevent partial commits. Also, configuring exit codes in Glue and catching them in Step Functions requires careful job run status mapping. Option B is simpler because it uses S3 as the ground truth after the fact.",
+      "D – Incorrect. A 30-minute post-execution Lambda check introduces significant detection delay. Comparing to historical averages using DynamoDB adds complexity. For a binary failure (0 records written), comparing to historical averages is over-engineered — the S3 existence check in option B is simpler and faster."
+    ]
   }
 ]

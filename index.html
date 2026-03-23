@@ -4,10 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AWS DEA-C01 Practice Exam — Free Data Engineering Quiz</title>
-  <meta name="description" content="Free, open-source practice exam for the AWS Certified Data Engineer – Associate (DEA-C01). 65 scenario-based questions with timed answers, explanations, and domain score breakdown." />
+  <meta name="description" content="Free, open-source practice exam for the AWS Certified Data Engineer – Associate (DEA-C01). Scenario-based questions with timed answers, explanations, and domain score breakdown." />
   <meta name="keywords" content="AWS DEA-C01, AWS Data Engineer, data engineering, AWS certification, practice exam, free quiz" />
   <meta property="og:title" content="AWS DEA-C01 Practice Exam" />
-  <meta property="og:description" content="Free practice exam for AWS Certified Data Engineer – Associate. 65 questions, timed, with explanations." />
+  <meta property="og:description" content="Free practice exam for AWS Certified Data Engineer – Associate. Timed questions with explanations." />
   <meta property="og:type" content="website" />
   <link rel="stylesheet" href="css/style.css" />
 </head>
@@ -20,12 +20,12 @@
     <div class="start-inner">
       <div class="badge-row">
         <span class="badge badge-blue">DEA-C01</span>
-        <span class="badge badge-gray">65 Questions</span>
+        <span class="badge badge-gray" id="totalBadge">— Questions</span>
         <span class="badge badge-gray">130 min exam</span>
       </div>
       <h1>AWS Certified Data Engineer</h1>
-      <p class="subtitle">Associate — Official Practice Exam</p>
-      <p class="desc">65 scenario-based questions across all 4 exam domains, weighted to match the real exam. Scored on accuracy and time. Full explanations after every answer.</p>
+      <p class="subtitle">Associate — Practice Exam</p>
+      <p class="desc">Scenario-based questions across all 4 exam domains. New questions added daily. Scored on accuracy and time, with full explanations after every answer.</p>
 
       <div class="domain-grid">
         <div class="domain-card">
@@ -50,13 +50,58 @@
         </div>
       </div>
 
+      <!-- MODE SELECTOR -->
+      <div class="config-section">
+        <p class="config-label">Exam mode</p>
+        <div class="mode-row">
+          <button class="mode-btn active" data-mode="full">
+            <span class="mode-icon">📋</span>
+            <span class="mode-title">Full Exam</span>
+            <span class="mode-desc">All questions, shuffled</span>
+          </button>
+          <button class="mode-btn" data-mode="domain">
+            <span class="mode-icon">🎯</span>
+            <span class="mode-title">By Domain</span>
+            <span class="mode-desc">Pick one or more topics</span>
+          </button>
+          <button class="mode-btn" data-mode="difficulty">
+            <span class="mode-icon">⚡</span>
+            <span class="mode-title">By Difficulty</span>
+            <span class="mode-desc">Filter by complexity</span>
+          </button>
+        </div>
+
+        <!-- Domain filter (shown when mode=domain) -->
+        <div id="domainFilter" class="filter-group" style="display:none;">
+          <p class="filter-label">Select domains</p>
+          <div class="chip-row">
+            <button class="chip active" data-domain="1">D1 · Ingestion &amp; Transform</button>
+            <button class="chip active" data-domain="2">D2 · Data Store</button>
+            <button class="chip active" data-domain="3">D3 · Operations</button>
+            <button class="chip active" data-domain="4">D4 · Security</button>
+          </div>
+        </div>
+
+        <!-- Difficulty filter (shown when mode=difficulty) -->
+        <div id="difficultyFilter" class="filter-group" style="display:none;">
+          <p class="filter-label">Select difficulty levels</p>
+          <div class="chip-row">
+            <button class="chip chip-easy active" data-diff="easy">Easy</button>
+            <button class="chip chip-moderate active" data-diff="moderate">Moderate</button>
+            <button class="chip chip-hard active" data-diff="hard">Hard</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="selectionSummary" class="selection-summary"></div>
+
       <div class="start-meta">
         <span>⏱ 2 min per question</span>
-        <span>✓ Shuffle on every attempt</span>
+        <span>✓ Shuffled every time</span>
         <span>📊 Domain score breakdown</span>
       </div>
       <button id="startBtn" class="btn btn-primary btn-lg">Start exam →</button>
-      <p id="loadError" class="load-error" style="display:none;">Could not load questions.json. Make sure you're running via a local server (e.g. <code>npx serve .</code>).</p>
+      <p id="loadError" class="load-error" style="display:none;">Could not load questions.json.</p>
     </div>
   </div>
 
@@ -121,7 +166,8 @@
     <div id="domainScores" class="domain-scores"></div>
 
     <div class="result-actions">
-      <button class="btn btn-primary" id="retakeBtn">Retake exam</button>
+      <button class="btn btn-primary" id="retakeBtn">Retake</button>
+      <button class="btn btn-outline" id="backToStartBtn">Change mode</button>
       <button class="btn btn-outline" id="reviewToggleBtn">Review wrong answers</button>
     </div>
 

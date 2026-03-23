@@ -16,17 +16,22 @@ const LETTERS = ['A', 'B', 'C', 'D'];
 
 /* ── State ── */
 let questions = [];
-let shuffled = [];
-let current = 0;
-let score = 0;
-let answered = false;
-let qTimes = [];
-let qCorrect = [];
-let qAnswers = [];
-let qStart = 0;
+let shuffled  = [];
+let current   = 0;
+let score     = 0;
+let answered  = false;
+let qTimes    = [];
+let qCorrect  = [];
+let qAnswers  = [];
+let qStart    = 0;
 let totalStart = 0;
 let timerInterval = null;
-let timeLeft = 120;
+let timeLeft  = 120;
+
+/* current mode selections */
+let activeMode       = 'full';
+let activeDomains    = new Set([1, 2, 3, 4]);
+let activeDiffs      = new Set(['easy', 'moderate', 'hard']);
 
 /* ── DOM refs ── */
 const startScreen   = document.getElementById('startScreen');
@@ -35,6 +40,7 @@ const resultScreen  = document.getElementById('resultScreen');
 const startBtn      = document.getElementById('startBtn');
 const nextBtn       = document.getElementById('nextBtn');
 const retakeBtn     = document.getElementById('retakeBtn');
+const backToStartBtn = document.getElementById('backToStartBtn');
 const reviewToggle  = document.getElementById('reviewToggleBtn');
 const loadError     = document.getElementById('loadError');
 
@@ -47,6 +53,8 @@ window.addEventListener('DOMContentLoaded', () => {
     })
     .then(data => {
       questions = data;
+      document.getElementById('totalBadge').textContent = data.length + ' Questions';
+      updateSummary();
       startBtn.addEventListener('click', startQuiz);
     })
     .catch(() => {
@@ -56,8 +64,70 @@ window.addEventListener('DOMContentLoaded', () => {
 
   nextBtn.addEventListener('click', nextQuestion);
   retakeBtn.addEventListener('click', startQuiz);
+  backToStartBtn.addEventListener('click', () => { hide(resultScreen); show(startScreen); });
   reviewToggle.addEventListener('click', toggleReview);
+
+  /* mode buttons */
+  document.querySelectorAll('.mode-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeMode = btn.dataset.mode;
+      document.getElementById('domainFilter').style.display    = activeMode === 'domain'     ? 'block' : 'none';
+      document.getElementById('difficultyFilter').style.display = activeMode === 'difficulty' ? 'block' : 'none';
+      updateSummary();
+    });
+  });
+
+  /* domain chips */
+  document.querySelectorAll('[data-domain]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const d = parseInt(chip.dataset.domain);
+      if (activeDomains.has(d)) {
+        if (activeDomains.size > 1) { activeDomains.delete(d); chip.classList.remove('active'); }
+      } else {
+        activeDomains.add(d); chip.classList.add('active');
+      }
+      updateSummary();
+    });
+  });
+
+  /* difficulty chips */
+  document.querySelectorAll('[data-diff]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const diff = chip.dataset.diff;
+      if (activeDiffs.has(diff)) {
+        if (activeDiffs.size > 1) { activeDiffs.delete(diff); chip.classList.remove('active'); }
+      } else {
+        activeDiffs.add(diff); chip.classList.add('active');
+      }
+      updateSummary();
+    });
+  });
 });
+
+/* ── Filter questions based on current mode ── */
+function getFilteredQuestions() {
+  if (activeMode === 'full') return questions;
+  if (activeMode === 'domain') return questions.filter(q => activeDomains.has(q.domain));
+  if (activeMode === 'difficulty') return questions.filter(q => activeDiffs.has(q.difficulty));
+  return questions;
+}
+
+/* ── Update summary line on start screen ── */
+function updateSummary() {
+  const pool = getFilteredQuestions();
+  const el = document.getElementById('selectionSummary');
+  if (pool.length === 0) {
+    el.textContent = 'No questions match — select at least one option above.';
+    el.className = 'selection-summary selection-empty';
+    startBtn.disabled = true;
+  } else {
+    el.textContent = pool.length + ' question' + (pool.length === 1 ? '' : 's') + ' in this session';
+    el.className = 'selection-summary';
+    startBtn.disabled = false;
+  }
+}
 
 /* ── Helpers ── */
 function shuffle(arr) {
@@ -80,13 +150,16 @@ function fmt(totalSec) {
 
 /* ── Start ── */
 function startQuiz() {
-  shuffled = shuffle(questions);
-  current = 0;
-  score = 0;
-  answered = false;
-  qTimes = [];
-  qCorrect = [];
-  qAnswers = [];
+  const pool = getFilteredQuestions();
+  if (pool.length === 0) return;
+
+  shuffled   = shuffle(pool);
+  current    = 0;
+  score      = 0;
+  answered   = false;
+  qTimes     = [];
+  qCorrect   = [];
+  qAnswers   = [];
   totalStart = Date.now();
 
   hide(startScreen);
@@ -101,28 +174,19 @@ function loadQuestion() {
   answered = false;
   const q = shuffled[current];
 
-  /* header */
   document.getElementById('domainLabel').textContent = 'Domain ' + q.domain + ': ' + DOMAIN_NAMES[q.domain];
   const db = document.getElementById('diffLabel');
   db.textContent = q.difficulty;
   db.className = 'diff-badge diff-' + q.difficulty;
 
-  /* progress */
   const pct = Math.round((current / shuffled.length) * 100);
   document.getElementById('progressFill').style.width = pct + '%';
   document.getElementById('progressLabel').textContent = (current + 1) + ' / ' + shuffled.length;
-
-  /* score */
   document.getElementById('scoreRunning').textContent = 'Score: ' + score + ' / ' + current;
-
-  /* question */
   document.getElementById('qText').textContent = q.question;
-
-  /* hide explanation + next */
   document.getElementById('explanationBox').style.display = 'none';
   nextBtn.style.display = 'none';
 
-  /* options */
   const list = document.getElementById('optionsList');
   list.innerHTML = '';
   q.options.forEach((opt, i) => {
@@ -133,7 +197,6 @@ function loadQuestion() {
     list.appendChild(btn);
   });
 
-  /* timer */
   timeLeft = 120;
   clearInterval(timerInterval);
   updateTimer();
@@ -142,7 +205,7 @@ function loadQuestion() {
     updateTimer();
     if (timeLeft <= 0) {
       clearInterval(timerInterval);
-      selectAnswer(-1); /* auto-submit as timed-out */
+      selectAnswer(-1);
     }
   }, 1000);
 
@@ -171,27 +234,20 @@ function selectAnswer(idx) {
   if (isCorrect) score++;
   qCorrect.push(isCorrect);
 
-  /* colour buttons */
   const btns = document.getElementById('optionsList').querySelectorAll('.option-btn');
   btns.forEach((btn, i) => {
     btn.disabled = true;
-    if (i === q.answer) {
-      btn.classList.add('correct');
-    } else if (i === idx) {
-      btn.classList.add('wrong');
-    }
+    if (i === q.answer) btn.classList.add('correct');
+    else if (i === idx)  btn.classList.add('wrong');
   });
 
-  /* explanation */
-  const box = document.getElementById('explanationBox');
   const content = document.getElementById('expContent');
   content.innerHTML = q.explanations.map((e, i) => {
     const cls = i === q.answer ? 'exp-item exp-correct' : 'exp-item';
     return '<p class="' + cls + '">' + e + '</p>';
   }).join('');
-  box.style.display = 'block';
+  document.getElementById('explanationBox').style.display = 'block';
 
-  /* score update */
   document.getElementById('scoreRunning').textContent = 'Score: ' + score + ' / ' + (current + 1);
   nextBtn.style.display = 'inline-flex';
 }
@@ -199,11 +255,8 @@ function selectAnswer(idx) {
 /* ── Next ── */
 function nextQuestion() {
   current++;
-  if (current >= shuffled.length) {
-    showResults();
-  } else {
-    loadQuestion();
-  }
+  if (current >= shuffled.length) showResults();
+  else loadQuestion();
 }
 
 /* ── Results ── */
@@ -213,10 +266,9 @@ function showResults() {
   show(resultScreen);
 
   const total = shuffled.length;
-  const pct = Math.round((score / total) * 100);
+  const pct   = Math.round((score / total) * 100);
   const passing = pct >= 72;
 
-  /* score circle */
   document.getElementById('finalScore').textContent = pct + '%';
   const circle = document.getElementById('scoreCircle');
   circle.className = 'score-circle ' + (passing ? 'passing' : 'failing');
@@ -224,31 +276,25 @@ function showResults() {
   sub.textContent = passing ? 'PASS' : 'FAIL';
   sub.className = 'score-sub ' + (passing ? 'pass' : 'fail');
 
-  /* metrics */
   document.getElementById('mCorrect').textContent = score + ' / ' + total;
   const totalSec = Math.round((Date.now() - totalStart) / 1000);
   document.getElementById('mTime').textContent = fmt(totalSec);
   const totalQTime = qTimes.reduce((a, b) => a + b, 0);
   document.getElementById('mAvg').textContent = Math.round(totalQTime / qTimes.length) + 's';
 
-  /* domain bars */
   const dd = { 1:{c:0,t:0}, 2:{c:0,t:0}, 3:{c:0,t:0}, 4:{c:0,t:0} };
-  shuffled.forEach((q, i) => {
-    dd[q.domain].t++;
-    if (qCorrect[i]) dd[q.domain].c++;
-  });
+  shuffled.forEach((q, i) => { dd[q.domain].t++; if (qCorrect[i]) dd[q.domain].c++; });
 
   const dsEl = document.getElementById('domainScores');
   dsEl.innerHTML = '';
   [1, 2, 3, 4].forEach(d => {
-    const p = dd[d].t > 0 ? Math.round((dd[d].c / dd[d].t) * 100) : 0;
+    if (dd[d].t === 0) return;
+    const p = Math.round((dd[d].c / dd[d].t) * 100);
     const color = DOMAIN_COLORS[d];
     dsEl.innerHTML += `
       <div class="ds-row">
         <span class="ds-name">D${d}: ${DOMAIN_NAMES[d].split(' ').slice(0,2).join(' ')}</span>
-        <div class="ds-bar-bg">
-          <div class="ds-bar-fill" style="width:${p}%;background:${color};"></div>
-        </div>
+        <div class="ds-bar-bg"><div class="ds-bar-fill" style="width:${p}%;background:${color};"></div></div>
         <span class="ds-pct">${p}%</span>
       </div>`;
   });
@@ -260,7 +306,6 @@ function toggleReview() {
   const visible = rev.style.display !== 'none';
   rev.style.display = visible ? 'none' : 'block';
   reviewToggle.textContent = visible ? 'Review wrong answers' : 'Hide review';
-
   if (!visible) buildReview();
 }
 
@@ -268,8 +313,8 @@ function buildReview() {
   const list = document.getElementById('reviewList');
   list.innerHTML = '';
 
-  const wrong = shuffled.filter((q, i) => !qCorrect[i]);
-  if (wrong.length === 0) {
+  const hasWrong = shuffled.some((q, i) => !qCorrect[i]);
+  if (!hasWrong) {
     list.innerHTML = '<div class="no-wrong">🎉 No wrong answers — excellent work!</div>';
     return;
   }
@@ -277,19 +322,12 @@ function buildReview() {
   shuffled.forEach((q, i) => {
     if (qCorrect[i]) return;
     const ua = qAnswers[i];
-    const uaText = ua >= 0
-      ? LETTERS[ua] + ' – ' + q.options[ua]
-      : 'Timed out';
-
+    const uaText = ua >= 0 ? LETTERS[ua] + ' – ' + q.options[ua] : 'Timed out';
     list.innerHTML += `
       <div class="review-card">
-        <p class="review-q"><strong>Q${i+1} · Domain ${q.domain}</strong><br>${q.question}</p>
-        <p class="review-ans">Your answer:
-          <span class="answer-tag wrong-tag">${uaText}</span>
-        </p>
-        <p class="review-ans">Correct answer:
-          <span class="answer-tag correct-tag">${LETTERS[q.answer]} – ${q.options[q.answer]}</span>
-        </p>
+        <p class="review-q"><strong>Q${i+1} · Domain ${q.domain} · ${q.difficulty}</strong><br>${q.question}</p>
+        <p class="review-ans">Your answer: <span class="answer-tag wrong-tag">${uaText}</span></p>
+        <p class="review-ans">Correct answer: <span class="answer-tag correct-tag">${LETTERS[q.answer]} – ${q.options[q.answer]}</span></p>
         <div class="review-exp">${q.explanations[q.answer]}</div>
       </div>`;
   });
