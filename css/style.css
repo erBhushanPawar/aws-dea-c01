@@ -175,6 +175,19 @@ h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; }
 }
 .header-left { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
+.btn-back {
+  background: none;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 10px;
+  transition: background 0.12s, color 0.12s;
+}
+.btn-back:hover { background: var(--bg); color: var(--text-primary); }
+
 .domain-badge {
   font-size: 12px;
   font-weight: 500;

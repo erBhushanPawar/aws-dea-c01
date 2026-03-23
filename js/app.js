@@ -72,6 +72,15 @@ window.addEventListener('DOMContentLoaded', () => {
   backToStartBtn.addEventListener('click', () => { hide(resultScreen); show(startScreen); });
   reviewToggle.addEventListener('click', toggleReview);
 
+  document.getElementById('backBtn').addEventListener('click', () => {
+    if (confirm('Exit exam? Your progress will be saved and you can resume later.')) {
+      clearInterval(timerInterval);
+      saveSessionCheckpoint();
+      hide(quizScreen);
+      show(startScreen);
+      checkResumable();
+    }
+  });
   document.getElementById('resumeBtn').addEventListener('click', resumeSession);
   document.getElementById('discardBtn').addEventListener('click', discardSession);
   document.getElementById('editProfileBtn').addEventListener('click', openProfileModal);
@@ -240,7 +249,7 @@ function checkResumable() {
     const s = JSON.parse(localStorage.getItem(LS_SESSION));
     if (!s || !s.shuffledIds || s.current >= s.shuffledIds.length) { clearSession(); return; }
     const age = Date.now() - s.savedAt;
-    if (age > 24 * 60 * 60 * 1000) { clearSession(); return; } // expire after 24h
+    if (age > 30 * 24 * 60 * 60 * 1000) { clearSession(); return; } // expire after 30 days
     const remaining = s.shuffledIds.length - s.current;
     const p = s.shuffledIds[s.current];
     const q = questions.find(q => q.id === p);
@@ -316,7 +325,7 @@ function startQuiz() {
   if (pool.length === 0) return;
 
   clearSession();
-  shuffled    = shuffle(pool);
+  shuffled    = shuffle(pool).slice(0, 40);
   current     = 0;
   score       = 0;
   answered    = false;
