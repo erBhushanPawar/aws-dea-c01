@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AWS DEA-C01 Practice Exam — Free Data Engineering Quiz</title>
+  <meta name="description" content="Free, open-source practice exam for the AWS Certified Data Engineer – Associate (DEA-C01). 65 scenario-based questions with timed answers, explanations, and domain score breakdown." />
+  <meta name="keywords" content="AWS DEA-C01, AWS Data Engineer, data engineering, AWS certification, practice exam, free quiz" />
+  <meta property="og:title" content="AWS DEA-C01 Practice Exam" />
+  <meta property="og:description" content="Free practice exam for AWS Certified Data Engineer – Associate. 65 questions, timed, with explanations." />
+  <meta property="og:type" content="website" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+<div class="quiz-wrap">
+
+  <!-- START SCREEN -->
+  <div id="startScreen" class="screen active">
+    <div class="start-inner">
+      <div class="badge-row">
+        <span class="badge badge-blue">DEA-C01</span>
+        <span class="badge badge-gray">65 Questions</span>
+        <span class="badge badge-gray">130 min exam</span>
+      </div>
+      <h1>AWS Certified Data Engineer</h1>
+      <p class="subtitle">Associate — Official Practice Exam</p>
+      <p class="desc">65 scenario-based questions across all 4 exam domains, weighted to match the real exam. Scored on accuracy and time. Full explanations after every answer.</p>
+
+      <div class="domain-grid">
+        <div class="domain-card">
+          <span class="domain-num">Domain 1</span>
+          <span class="domain-title">Data Ingestion &amp; Transformation</span>
+          <span class="domain-pct">34%</span>
+        </div>
+        <div class="domain-card">
+          <span class="domain-num">Domain 2</span>
+          <span class="domain-title">Data Store Management</span>
+          <span class="domain-pct">26%</span>
+        </div>
+        <div class="domain-card">
+          <span class="domain-num">Domain 3</span>
+          <span class="domain-title">Data Operations &amp; Support</span>
+          <span class="domain-pct">22%</span>
+        </div>
+        <div class="domain-card">
+          <span class="domain-num">Domain 4</span>
+          <span class="domain-title">Data Security &amp; Governance</span>
+          <span class="domain-pct">18%</span>
+        </div>
+      </div>
+
+      <div class="start-meta">
+        <span>⏱ 2 min per question</span>
+        <span>✓ Shuffle on every attempt</span>
+        <span>📊 Domain score breakdown</span>
+      </div>
+      <button id="startBtn" class="btn btn-primary btn-lg">Start exam →</button>
+      <p id="loadError" class="load-error" style="display:none;">Could not load questions.json. Make sure you're running via a local server (e.g. <code>npx serve .</code>).</p>
+    </div>
+  </div>
+
+  <!-- QUIZ SCREEN -->
+  <div id="quizScreen" class="screen">
+    <header class="quiz-header">
+      <div class="header-left">
+        <span class="domain-badge" id="domainLabel"></span>
+        <span class="diff-badge" id="diffLabel"></span>
+      </div>
+      <div class="timer-wrap">
+        <svg width="14" height="14" viewBox="0 0 14 14"><circle cx="7" cy="7" r="6" stroke-width="1.5" fill="none" id="timerCircle"/></svg>
+        <span id="timerDisplay">2:00</span>
+      </div>
+    </header>
+
+    <div class="progress-row">
+      <div class="progress-bg"><div class="progress-fill" id="progressFill"></div></div>
+      <span class="progress-label" id="progressLabel">1 / 65</span>
+    </div>
+
+    <div class="q-card">
+      <p class="q-text" id="qText"></p>
+      <div class="options-list" id="optionsList"></div>
+      <div id="explanationBox" class="explanation-box" style="display:none;">
+        <p class="exp-heading">Explanation</p>
+        <div id="expContent"></div>
+      </div>
+    </div>
+
+    <div class="nav-row">
+      <span class="score-running" id="scoreRunning"></span>
+      <button class="btn btn-primary" id="nextBtn" style="display:none;">Next →</button>
+    </div>
+  </div>
+
+  <!-- RESULT SCREEN -->
+  <div id="resultScreen" class="screen">
+    <div class="result-hero">
+      <div class="score-circle" id="scoreCircle">
+        <span class="score-big" id="finalScore">0%</span>
+        <span class="score-sub" id="passFailLabel"></span>
+      </div>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <span class="metric-val" id="mCorrect">—</span>
+        <span class="metric-lbl">Correct</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-val" id="mTime">—</span>
+        <span class="metric-lbl">Total time</span>
+      </div>
+      <div class="metric-card">
+        <span class="metric-val" id="mAvg">—</span>
+        <span class="metric-lbl">Avg per Q</span>
+      </div>
+    </div>
+
+    <div class="section-title">Score by domain</div>
+    <div id="domainScores" class="domain-scores"></div>
+
+    <div class="result-actions">
+      <button class="btn btn-primary" id="retakeBtn">Retake exam</button>
+      <button class="btn btn-outline" id="reviewToggleBtn">Review wrong answers</button>
+    </div>
+
+    <div id="reviewSection" style="display:none;">
+      <div class="section-title" style="margin-top:2rem;">Wrong answers</div>
+      <div id="reviewList"></div>
+    </div>
+  </div>
+
+</div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
