@@ -15,9 +15,34 @@
 
 <div class="quiz-wrap">
 
+  <!-- PROFILE SETUP MODAL -->
+  <div id="profileModal" class="modal-overlay" style="display:none;">
+    <div class="modal-card">
+      <h2 class="modal-title">Welcome! Let's set up your profile</h2>
+      <p class="modal-desc">Your name and scores are saved locally on this device only.</p>
+      <div class="avatar-grid" id="avatarGrid"></div>
+      <input id="profileNameInput" class="name-input" type="text" maxlength="24" placeholder="Your name or nickname" autocomplete="off" />
+      <button id="profileSaveBtn" class="btn btn-primary btn-lg" style="width:100%;">Start practising →</button>
+    </div>
+  </div>
+
   <!-- START SCREEN -->
   <div id="startScreen" class="screen active">
     <div class="start-inner">
+
+      <!-- Profile bar -->
+      <div id="profileBar" class="profile-bar" style="display:none;">
+        <div class="profile-info">
+          <span id="profileAvatar" class="profile-avatar-sm"></span>
+          <span id="profileName" class="profile-name-sm"></span>
+        </div>
+        <div class="profile-stats">
+          <span id="profileBest" class="profile-stat"></span>
+          <span id="profileAttempts" class="profile-stat"></span>
+          <button id="editProfileBtn" class="btn-ghost">Edit</button>
+        </div>
+      </div>
+
       <div class="badge-row">
         <span class="badge badge-blue">DEA-C01</span>
         <span class="badge badge-gray" id="totalBadge">— Questions</span>
@@ -26,6 +51,21 @@
       <h1>AWS Certified Data Engineer</h1>
       <p class="subtitle">Associate — Practice Exam</p>
       <p class="desc">Scenario-based questions across all 4 exam domains. New questions added daily. Scored on accuracy and time, with full explanations after every answer.</p>
+
+      <!-- Resume banner (shown when in-progress session exists) -->
+      <div id="resumeBanner" class="resume-banner" style="display:none;">
+        <div class="resume-info">
+          <span class="resume-icon">⏸</span>
+          <div>
+            <p class="resume-title">Resume in-progress exam</p>
+            <p class="resume-detail" id="resumeDetail"></p>
+          </div>
+        </div>
+        <div class="resume-actions">
+          <button id="resumeBtn" class="btn btn-primary">Resume</button>
+          <button id="discardBtn" class="btn btn-outline">Discard</button>
+        </div>
+      </div>
 
       <div class="domain-grid">
         <div class="domain-card">
@@ -71,7 +111,6 @@
           </button>
         </div>
 
-        <!-- Domain filter (shown when mode=domain) -->
         <div id="domainFilter" class="filter-group" style="display:none;">
           <p class="filter-label">Select domains</p>
           <div class="chip-row">
@@ -82,7 +121,6 @@
           </div>
         </div>
 
-        <!-- Difficulty filter (shown when mode=difficulty) -->
         <div id="difficultyFilter" class="filter-group" style="display:none;">
           <p class="filter-label">Select difficulty levels</p>
           <div class="chip-row">
@@ -164,6 +202,10 @@
 
     <div class="section-title">Score by domain</div>
     <div id="domainScores" class="domain-scores"></div>
+
+    <!-- Score history -->
+    <div class="section-title" style="margin-top:1.75rem;">Your history</div>
+    <div id="scoreHistory" class="score-history"></div>
 
     <div class="result-actions">
       <button class="btn btn-primary" id="retakeBtn">Retake</button>
