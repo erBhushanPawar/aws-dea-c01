@@ -409,6 +409,7 @@ function loadQuestion() {
   document.getElementById('scoreRunning').textContent = 'Score: ' + score + ' / ' + current;
   document.getElementById('qText').textContent = q.question;
   document.getElementById('explanationBox').style.display = 'none';
+  document.getElementById('topicBox').style.display = 'none';
   nextBtn.style.display = 'none';
 
   const list = document.getElementById('optionsList');
