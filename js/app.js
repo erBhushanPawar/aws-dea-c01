@@ -29,11 +29,35 @@ let qStart     = 0;
 let totalStart = 0;
 let timerInterval = null;
 let timeLeft   = 120;
+let timeLimit  = 120;
 
 /* Mode selections */
 let activeMode    = 'full';
 let activeDomains = new Set([1, 2, 3, 4]);
 let activeDiffs   = new Set(['easy', 'moderate', 'hard']);
+let activeSets    = new Set();
+
+const SET_INFO = {
+  1: { title: 'Set 1 · Core',          desc: 'Original 95 questions',              floor: 120 },
+  2: { title: 'Set 2 · New additions', desc: 'Bedrock, Iceberg, vectors & more',    floor: 120 },
+  3: { title: 'Set 3 · Advanced I',    desc: 'Tough scenarios, 5 min each',         floor: 300 },
+  4: { title: 'Set 4 · Advanced II',   desc: 'Tough scenarios, 5 min each',         floor: 300 }
+};
+const DIFF_THINK_SECONDS = { easy: 20, moderate: 30, hard: 45 };
+const READING_WORDS_PER_SEC = 2.5; // ~150 wpm, tuned for dense technical text
+const MAX_TIME_LIMIT = 480; // hard cap, 8 min
+
+/* Adaptive per-question time budget: respects each set's floor, but stretches
+   beyond it for unusually long question/option text so reading time doesn't
+   eat into thinking time. */
+function getTimeLimit(q) {
+  if (q.timeLimit) return q.timeLimit;
+  const wordCount = (q.question + ' ' + q.options.join(' ')).trim().split(/\s+/).length;
+  const readSeconds = Math.ceil(wordCount / READING_WORDS_PER_SEC);
+  const thinkSeconds = DIFF_THINK_SECONDS[q.difficulty] || 30;
+  const floor = (SET_INFO[q.set] && SET_INFO[q.set].floor) || 120;
+  return Math.min(MAX_TIME_LIMIT, Math.max(floor, readSeconds + thinkSeconds));
+}
 
 /* ── DOM refs ── */
 const startScreen    = document.getElementById('startScreen');
@@ -57,6 +81,7 @@ window.addEventListener('DOMContentLoaded', () => {
     .then(data => {
       questions = data;
       document.getElementById('totalBadge').textContent = data.length + ' Questions';
+      buildSetChips();
       updateSummary();
       initProfile();
       checkResumable();
@@ -97,6 +122,7 @@ window.addEventListener('DOMContentLoaded', () => {
       activeMode = btn.dataset.mode;
       document.getElementById('domainFilter').style.display    = activeMode === 'domain'     ? 'block' : 'none';
       document.getElementById('difficultyFilter').style.display = activeMode === 'difficulty' ? 'block' : 'none';
+      document.getElementById('setFilter').style.display        = activeMode === 'set'        ? 'block' : 'none';
       updateSummary();
     });
   });
@@ -269,7 +295,8 @@ function resumeSession() {
     qTimes      = s.qTimes;
     qCorrect    = s.qCorrect;
     qAnswers    = s.qAnswers;
-    totalStart  = Date.now() - (s.shuffledIds.length * 120 - s.timeLeft) * 1000; // approximate
+    const elapsedSoFar = qTimes.reduce((a, b) => a + b, 0); // approximate, current question restarts fresh
+    totalStart  = Date.now() - elapsedSoFar * 1000;
     timeLeft    = s.timeLeft;
 
     resumeBanner.style.display = 'none';
@@ -289,7 +316,31 @@ function getFilteredQuestions() {
   if (activeMode === 'full')       return questions;
   if (activeMode === 'domain')     return questions.filter(q => activeDomains.has(q.domain));
   if (activeMode === 'difficulty') return questions.filter(q => activeDiffs.has(q.difficulty));
+  if (activeMode === 'set')        return questions.filter(q => activeSets.has(q.set));
   return questions;
+}
+
+function buildSetChips() {
+  const sets = [...new Set(questions.map(q => q.set))].sort((a, b) => a - b);
+  activeSets = new Set(sets);
+  const row = document.getElementById('setChipRow');
+  row.innerHTML = '';
+  sets.forEach(s => {
+    const count = questions.filter(q => q.set === s).length;
+    const info = SET_INFO[s] || { title: 'Set ' + s, desc: '' };
+    const chip = document.createElement('button');
+    chip.className = 'chip active';
+    chip.dataset.set = s;
+    chip.innerHTML = info.title + ' <span class="chip-sub">(' + count + ')</span>';
+    chip.title = info.desc;
+    chip.addEventListener('click', () => {
+      if (activeSets.has(s)) {
+        if (activeSets.size > 1) { activeSets.delete(s); chip.classList.remove('active'); }
+      } else { activeSets.add(s); chip.classList.add('active'); }
+      updateSummary();
+    });
+    row.appendChild(chip);
+  });
 }
 
 function updateSummary() {
@@ -370,7 +421,8 @@ function loadQuestion() {
     list.appendChild(btn);
   });
 
-  timeLeft = 120;
+  timeLimit = getTimeLimit(q);
+  timeLeft = timeLimit;
   clearInterval(timerInterval);
   updateTimer();
   timerInterval = setInterval(() => {
@@ -387,7 +439,8 @@ function loadQuestion() {
 function updateTimer() {
   document.getElementById('timerDisplay').textContent = fmt(timeLeft);
   const c = document.getElementById('timerCircle');
-  c.className = timeLeft > 60 ? '' : timeLeft > 30 ? 'warn' : 'danger';
+  const frac = timeLeft / (timeLimit || 120);
+  c.className = frac > 0.5 ? '' : frac > 0.25 ? 'warn' : 'danger';
 }
 
 /* ── Answer ── */
@@ -417,6 +470,15 @@ function selectAnswer(idx) {
     return '<p class="exp-item' + (i === q.answer ? ' exp-correct' : '') + '">' + e + '</p>';
   }).join('');
   document.getElementById('explanationBox').style.display = 'block';
+
+  const topicBox = document.getElementById('topicBox');
+  if (q.topic) {
+    document.getElementById('topicContent').innerHTML = '<p>' + q.topic + '</p>';
+    topicBox.style.display = 'block';
+  } else {
+    topicBox.style.display = 'none';
+  }
+
   document.getElementById('scoreRunning').textContent = 'Score: ' + score + ' / ' + (current + 1);
   nextBtn.style.display = 'inline-flex';
 

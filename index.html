@@ -109,6 +109,11 @@
             <span class="mode-title">By Difficulty</span>
             <span class="mode-desc">Filter by complexity</span>
           </button>
+          <button class="mode-btn" data-mode="set">
+            <span class="mode-icon">🗂️</span>
+            <span class="mode-title">By Set</span>
+            <span class="mode-desc">Pick question batches</span>
+          </button>
         </div>
 
         <div id="domainFilter" class="filter-group" style="display:none;">
@@ -129,12 +134,17 @@
             <button class="chip chip-hard active" data-diff="hard">Hard</button>
           </div>
         </div>
+
+        <div id="setFilter" class="filter-group" style="display:none;">
+          <p class="filter-label">Select question sets</p>
+          <div class="chip-row" id="setChipRow"></div>
+        </div>
       </div>
 
       <div id="selectionSummary" class="selection-summary"></div>
 
       <div class="start-meta">
-        <span>⏱ 2 min per question</span>
+        <span>⏱ Timer adapts to question length (2–5+ min)</span>
         <span>✓ Shuffled every time</span>
         <span>📊 Domain score breakdown</span>
       </div>
@@ -168,6 +178,10 @@
       <div id="explanationBox" class="explanation-box" style="display:none;">
         <p class="exp-heading">Explanation</p>
         <div id="expContent"></div>
+      </div>
+      <div id="topicBox" class="topic-box" style="display:none;">
+        <p class="topic-heading">📘 Study notes — root concept</p>
+        <div id="topicContent"></div>
       </div>
     </div>
 
