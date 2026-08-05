@@ -2799,17 +2799,17 @@
     "difficulty": "hard",
     "question": "A data engineering team is designing storage for a retrieval-augmented generation pipeline. Product documentation is chunked and embedded, and the resulting vectors must be stored alongside rich, frequently-updated relational metadata (SKU, price, inventory status) that is joined against the vector results in the same query using standard SQL, with strong transactional consistency between the vector and relational data. Which storage choice best fits this specific requirement?",
     "options": [
-      "Amazon Aurora PostgreSQL with pgvector, storing embeddings alongside relational metadata in one table, queried via SQL joins with ACID guarantees.",
-      "Amazon OpenSearch Service with the k-NN plugin, storing embeddings and metadata together as JSON documents indexed for search.",
-      "Amazon S3 with vectors stored as flat files and queried using Amazon Athena's SQL engine for nearest-neighbor search.",
-      "Amazon DynamoDB with vectors stored as a binary attribute, using a GSI for nearest-neighbor vector comparisons at query time."
+      "Amazon Aurora PostgreSQL with pgvector, storing embeddings and relational metadata in one table, queried via SQL joins with ACID transactions.",
+      "Amazon OpenSearch Service with the k-NN plugin, storing embeddings and metadata together as JSON documents, updated via near-real-time indexing.",
+      "Amazon S3 with vectors stored as flat Parquet files and queried using Amazon Athena's SQL engine for approximate nearest-neighbor search.",
+      "Amazon DynamoDB with vectors stored as a binary attribute, using a GSI on SKU for lookups and a full table scan for vector comparisons."
     ],
     "answer": 0,
     "explanations": [
-      "A – Correct. Aurora PostgreSQL with pgvector lets embeddings live in the same relational table as frequently-updated transactional metadata, queried with standard SQL joins under full ACID guarantees — the best fit when strong consistency between vector and relational data in the same query is required.",
-      "B – Incorrect. OpenSearch's k-NN plugin suits pure vector or hybrid vector/keyword search at scale, but as a document store it doesn't provide multi-table ACID transactions or standard SQL joins against separately-updated relational fields.",
-      "C – Incorrect. Athena is a serverless SQL engine over static files in S3, with no native vector index or nearest-neighbor capability and no transactional consistency with frequently-updated relational data.",
-      "D – Incorrect. DynamoDB doesn't provide native vector similarity search via a GSI; GSIs support key-based/attribute queries, not approximate nearest-neighbor vector comparisons."
+      "A – Correct. Aurora PostgreSQL with pgvector lets embeddings and the frequently-updated relational metadata (price, inventory) live in the same table, so a single SQL query can join and filter on both with full ACID guarantees — exactly the relational-consistency requirement here.",
+      "B – Incorrect. OpenSearch's k-NN plugin is a strong vector search engine, but it models data as denormalized JSON documents rather than a relational schema, making frequent, consistent joins against rapidly-changing structured fields (price, inventory) more awkward than a relational table.",
+      "C – Incorrect. Athena over flat files in S3 has no native vector index and no efficient way to do low-latency nearest-neighbor search, and re-writing Parquet files to reflect frequently-changing inventory/price data is a poor fit for this update pattern.",
+      "D – Incorrect. DynamoDB has no native vector-similarity index type, so nearest-neighbor comparisons would require scanning items and computing distance in application code, which doesn't scale for real-time RAG retrieval."
     ],
     "topic": "The exam's vectorization skill area distinguishes storage engines by their fit for a use case: Aurora PostgreSQL with pgvector is the right choice when vector embeddings must be tightly, transactionally joined with frequently-updated relational data using standard SQL, while OpenSearch's k-NN/vector engine is generally favored for large-scale, primarily read-heavy semantic search over big document collections without strong relational-join/ACID requirements. The trigger phrase is a need for vectors plus relational metadata queried together with strong transactional/ACID consistency, which should point to Aurora pgvector rather than a document-search-oriented or non-vector-capable service. Distractors either overstate OpenSearch's exclusivity, or propose services (Athena, DynamoDB) with no real native vector similarity search support.",
     "set": 2,
@@ -2931,17 +2931,17 @@
     "difficulty": "hard",
     "question": "A data engineering team is preparing a corpus of 50,000 internal engineering documents in S3 to back an Amazon Bedrock knowledge base used for retrieval-augmented generation. The team's task is limited to the data preparation and ingestion pipeline: chunking documents, generating embeddings, and keeping the underlying vector store in sync as documents are added, updated, or deleted in the source S3 bucket, using a managed vector store rather than operating their own database cluster. Which combination of AWS capabilities fits this data-engineering scope?",
     "options": [
-      "Fine-tune a foundation model on the 50,000 documents via SageMaker training jobs so it memorizes content, skipping a vector store.",
-      "Configure the knowledge base with an S3 data source and an OpenSearch Serverless vector collection, syncing so Bedrock auto-manages chunking and embedding.",
-      "Load the documents into Redshift as a VARCHAR column and use Redshift ML to generate embeddings for semantic search queries.",
-      "Build a custom Lambda calling a third-party embedding API per document, writing vectors into a self-managed FAISS index on EC2."
+      "Fine-tune a foundation model on the 50,000 documents via SageMaker training jobs so it memorizes the content directly, skipping a vector store entirely.",
+      "Configure the knowledge base with an S3 data source and an OpenSearch Serverless vector collection, letting Bedrock manage chunking and embedding on sync.",
+      "Load the documents into Redshift as a VARCHAR column and use Redshift ML to generate and query embeddings for semantic search over the corpus.",
+      "Build a custom Lambda that calls a third-party embedding API per document, writing the resulting vectors into a self-managed FAISS index on EC2."
     ],
     "answer": 1,
     "explanations": [
-      "A – Incorrect. Fine-tuning a model to memorize document content is model training work explicitly out of scope here, and doesn't provide the retrieval/citation behavior a knowledge base supports.",
-      "B – Correct. A Bedrock knowledge base with an S3 data source and a supported managed vector store natively handles chunking, embedding generation, and sync jobs that keep the vector index consistent with source additions/updates/deletions.",
-      "C – Incorrect. Redshift ML is designed for using ML models for predictions from SQL, not for operating a vector similarity search index for RAG document retrieval.",
-      "D – Incorrect. Building and operating a custom embedding pipeline plus a self-managed FAISS index on EC2 is precisely the operational burden the requirement asks to avoid by using a managed vector store."
+      "A – Incorrect. Fine-tuning to memorize content is a model-training task (out of scope for a data-preparation pipeline) and doesn't give retrieval-time source attribution or easy updates the way a vector-store-backed knowledge base does.",
+      "B – Correct. Pointing a Bedrock knowledge base at an S3 data source with an OpenSearch Serverless vector collection lets Bedrock handle chunking, embedding, and indexing automatically on each sync — the managed, low-maintenance ingestion pipeline the task calls for.",
+      "C – Incorrect. Redshift ML is built for training/invoking ML models on structured data within SQL, not for managing a document-chunking-and-embedding ingestion pipeline for a RAG knowledge base.",
+      "D – Incorrect. A self-managed FAISS index on EC2 requires building and operating the embedding, indexing, and retrieval infrastructure yourself, which is exactly the operational overhead a managed Bedrock knowledge base is meant to remove."
     ],
     "topic": "An Amazon Bedrock knowledge base automates the RAG data-preparation pipeline — chunking source documents, generating embeddings, and syncing a supported managed vector store (such as an OpenSearch Serverless vector collection, or Aurora/Redshift/Pinecone alternatives) whenever source data in S3 changes — which is the data-engineering-scoped, in-bounds part of building GenAI-adjacent pipelines under DEA-C01 (as opposed to building the RAG application or training models, which are out of scope). The trigger phrase is a data preparation/ingestion/sync task feeding a knowledge base with an explicit preference for a managed vector store over operating custom infrastructure. Distractors drift into out-of-scope model training, reinvent the sync/embedding pipeline with custom code, or misapply an unrelated service's ML feature.",
     "set": 2,
@@ -3636,7 +3636,7 @@
     "question": "A trading platform ingests 200,000 order events per second through KPL-aggregated PutRecords calls into a 400-shard Kinesis Data Stream. A KCL 2.x consumer application aggregates per-symbol volume and writes results to DynamoDB. During a recent deployment, a rolling restart caused several worker checkpoints to be re-processed, and the finance team discovered duplicate volume counts in DynamoDB for a handful of symbols. The team has a hard SLA of under 2 seconds end-to-end latency, cannot introduce Managed Service for Apache Flink due to an unrelated platform freeze on new stateful services this quarter, and must retain the ability to reprocess the last 7 days of raw events if a bug is discovered in the aggregation logic. The compliance team has also mandated that the fix must not require re-architecting the existing KCL consumer application, since it underwent a lengthy internal security review only two months ago and another review would delay the fix by weeks. What is the most effective way to eliminate the duplicate-counting problem going forward without violating these constraints?",
     "options": [
       "Reduce the stream to a single shard so only one KCL worker processes records, removing the possibility of concurrent checkpoint conflicts.",
-      "Make the DynamoDB writes idempotent by using a deterministic key derived from each record's partition key and sequence number, so re-delivered records overwrite rather than double-count.",
+      "Make the DynamoDB writes idempotent, using a deterministic key derived from each record's partition key and sequence number.",
       "Enable Enhanced Fan-Out on the consumer so each worker gets a dedicated throughput pipe and no longer needs to checkpoint.",
       "Switch the consumer to Kinesis Data Firehose so AWS manages delivery and deduplication automatically."
     ],
@@ -3657,10 +3657,10 @@
     "difficulty": "hard",
     "question": "A media company runs an Amazon MSK cluster with a consumer group of 12 application instances processing clickstream events, using auto-scaling to add and remove consumer instances based on CPU load every few minutes. Operators notice that whenever the auto-scaler adds or removes an instance, the entire consumer group stops processing for 20-40 seconds, and this happens dozens of times per hour during traffic ramps, causing consumer lag to spike well past the team's freshness SLA. The team wants to keep auto-scaling (cost matters, and fixed capacity would be overprovisioned overnight) but eliminate the frequent processing stalls. A prior incident review already ruled out under-provisioned broker instance types as a contributing factor, since broker-level CPU and network metrics stay comfortably within normal range throughout every scaling event. Which change most directly addresses the root cause?",
     "options": [
-      "Increase the number of partitions on the topic so each scaling event affects a smaller fraction of the group.",
+      "Increase the number of partitions on the topic (e.g., from 12 to 48) so each scaling event affects a smaller fraction of the consumer group.",
       "Switch producers to synchronous acknowledgment (acks=all) to slow down the rate of incoming messages.",
       "Migrate from MSK to Kinesis Data Streams, which does not use consumer groups.",
-      "Reduce the frequency of auto-scaling actions and increase session.timeout.ms/use a cooperative-sticky partition assignment strategy so scaling triggers fewer full group rebalances."
+      "Reduce auto-scaling frequency and switch from the default eager assignor to a cooperative-sticky (KIP-429) partition assignment strategy."
     ],
     "answer": 3,
     "explanations": [
@@ -3702,9 +3702,9 @@
     "question": "A geospatial analytics company runs a nightly EMR Spark job on a transient cluster that joins a 4 TB dataset against a 1.2 TB dataset, both read from S3. The job currently uses a 20-node uniform On-Demand instance fleet and takes 5.5 hours, exceeding the 4-hour SLA before the results feed a morning dashboard. Cost reporting shows the cluster is the single largest line item in the data team's monthly AWS bill, and finance has capped further On-Demand spend increases. Ganglia metrics show heavy shuffle spill to disk and severe task-duration skew, with a small number of tasks taking 10x longer than the median. The team cannot change the join logic, since the aggregation feeds a regulatory report whose calculation methodology is frozen for the fiscal year. What combination of changes is most likely to bring the job under SLA while respecting the cost cap?",
     "options": [
       "Move the job from EMR to a Glue Python shell job, which has no cluster to manage and therefore cannot experience shuffle spill.",
-      "Switch the entire cluster to Spot Instances of the same instance type and node count, since Spot is always cheaper regardless of workload.",
+      "Switch the entire cluster to Spot Instances of the same instance type and node count to cut cost.",
       "Repartition the input data into a single large partition before the join so Spark processes it as one task and skew no longer matters.",
-      "Enable Adaptive Query Execution to dynamically coalesce shuffle partitions and handle skewed joins, add a Spot-heavy instance fleet with On-Demand only for master/core nodes, and increase the number of shuffle partitions to reduce skew."
+      "Enable Adaptive Query Execution for skewed joins and shuffle coalescing, plus a Spot-heavy fleet with On-Demand reserved for master/core nodes."
     ],
     "answer": 3,
     "explanations": [
@@ -3725,8 +3725,8 @@
     "options": [
       "Add a secondary DMS replication instance and split the CDC task by primary key range.",
       "Increase the DMS task's MaxFullLoadSubTasks setting so more tables load in parallel.",
-      "Enable LOB support with a bounded 'Limited LOB mode' (or use full LOB mode with an appropriately sized max LOB size) and increase the replication instance size, since unbounded LOB columns are consuming excessive memory during CDC apply.",
-      "Switch the migration type from 'ongoing replication' to 'full load only' and re-run a full load nightly instead."
+      "Enable 'Limited LOB mode' with an appropriately sized max LOB size (or bound full LOB mode), and increase the replication instance size.",
+      "Switch the migration type from 'ongoing replication' to 'full-load-only' scheduled via a nightly EventBridge-triggered DMS task instead."
     ],
     "answer": 2,
     "explanations": [
@@ -3748,7 +3748,7 @@
       "Change the DMS source endpoint to use a read replica instead of the writer instance, since reads from a replica are always faster.",
       "Enable Multi-AZ on the DMS replication instance to improve throughput.",
       "Increase the Aurora MySQL binlog retention period so DMS has more time to catch up after settlement ends.",
-      "Switch the DMS task's apply mode from transactional apply to batch-optimized apply, which applies changes to the target in batches rather than as individual statements during high-throughput periods."
+      "Switch the DMS task's apply mode to batch-optimized apply, trading some in-flight ordering guarantees for higher throughput."
     ],
     "answer": 3,
     "explanations": [
@@ -3767,10 +3767,10 @@
     "difficulty": "hard",
     "question": "A logistics company's Kinesis Data Stream ingests GPS telemetry and is provisioned with 50 shards. To handle a traffic increase, an operator calls UpdateShardCount to scale to 100 shards during business hours. Immediately afterward, several KCL consumer application workers begin throwing lease-related exceptions, some records are temporarily reprocessed, and a few in-flight records appear to be processed out of order relative to their partition key. The team wants to understand why this happened and how to avoid disruption on the next scaling event, since the on-call engineer initially suspected an IAM permissions regression from an unrelated deployment earlier that day and spent an hour investigating that dead end before escalating. Which explanation and mitigation is correct?",
     "options": [
-      "Resharding splits or merges shards and creates new shard lineage; KCL must detect the new shards, close out leases on parent shards, and create new leases for child shards, which naturally causes a brief period of lease churn and possible reprocessing — this is expected and mitigated by ensuring downstream processing is idempotent and scheduling reshards during lower-traffic windows.",
+      "Resharding creates new shard lineage that KCL must reconcile, causing brief lease churn and possible reprocessing — this is expected and mitigated by idempotent downstream processing.",
       "The exceptions mean the stream must be deleted and recreated with the new shard count, since Kinesis does not support live resharding of an active stream.",
       "UpdateShardCount silently drops all records enqueued during the resharding operation, so the correct fix is to pause producers entirely before any resharding operation.",
-      "Resharding is instantaneous and should never cause any consumer disruption; the errors indicate an unrelated IAM permissions problem that must be fixed instead."
+      "Resharding completes within seconds with no visible impact to consumer leases; the errors indicate an unrelated IAM permissions problem that must be fixed instead."
     ],
     "answer": 0,
     "explanations": [
@@ -3789,7 +3789,7 @@
     "difficulty": "hard",
     "question": "A company uses Kinesis Data Firehose with dynamic partitioning enabled to route incoming JSON events into S3 prefixes based on a 'tenant_id' field extracted via a JQ expression, feeding a multi-tenant Athena data lake. After a producer team ships a bad deployment, a subset of events arrive missing the 'tenant_id' field entirely. The team notices these events are not appearing anywhere in the expected tenant prefixes, and wants to ensure that (a) malformed events are never silently dropped, since a past silent-drop incident triggered a customer-facing billing discrepancy that took weeks to reconcile, and (b) valid events continue to be delivered without interruption while the bad deployment is being fixed. What should they configure?",
     "options": [
-      "Configure Firehose's error output prefix so that records which fail the dynamic partitioning JQ expression are delivered to a separate S3 error prefix instead of being dropped, while records with a valid tenant_id continue to route normally.",
+      "Configure Firehose's error output prefix so records failing the dynamic-partitioning JQ expression land in a separate S3 error prefix instead of being dropped.",
       "Add a Lambda transformation that throws an exception on any record missing tenant_id, which causes Firehose to automatically retry until the field appears.",
       "Increase the Firehose buffer interval to 900 seconds so more time is available for the field to be populated before delivery.",
       "Disable dynamic partitioning entirely until the producer bug is fixed, so all events fall back to a single flat prefix."
@@ -3812,8 +3812,8 @@
     "question": "A ride-hailing company uses Amazon Managed Service for Apache Flink (Kinesis Data Analytics) to compute a 5-minute tumbling window average of trip fares per city, reading from a Kinesis Data Stream and writing results to another Kinesis stream for downstream consumption. During a planned application restart for a code deployment, the operations team wants to guarantee that no in-flight window state is lost and that the job resumes exactly where it left off, without reprocessing already-emitted window results or skipping any buffered events, since the fare-average output directly drives a surge-pricing decision engine and even a brief gap or duplicate emission causes visibly incorrect prices for riders. Which Flink/KDA capability directly provides this guarantee?",
     "options": [
       "Increase the number of Kinesis Processing Units (KPUs) allocated to the application before the restart.",
-      "Rely on the application's checkpointing and savepoint mechanism: take a savepoint before stopping the application, then restart the application from that savepoint so operator state (including in-flight window aggregations) is restored exactly.",
-      "Enable Kinesis Data Streams Enhanced Fan-Out on the source stream so the Flink application gets a dedicated read throughput pipe.",
+      "Take a Flink savepoint before stopping the application, then restart from that savepoint so operator state — including in-flight window aggregations — is restored exactly.",
+      "Enable Kinesis Data Streams Enhanced Fan-Out (via RegisterStreamConsumer) on the source stream so the Flink application gets a dedicated 2 MB/s read throughput pipe.",
       "Set the Kinesis source stream's retention period to 7 days so there is enough buffer to manually replay events after restart."
     ],
     "answer": 1,
@@ -3834,9 +3834,9 @@
     "question": "A data platform team orchestrates a pipeline with AWS Step Functions: a Glue crawler updates the catalog, then a Glue ETL job transforms data and writes to S3, then an EMR step runs a heavier aggregation reading that same S3 output, then a final Lambda function loads summary results into DynamoDB. The team recently had an incident where the EMR step failed transiently (a Spot interruption), Step Functions retried the EMR step per its configured retry policy, and the retry succeeded — but the final DynamoDB summary ended up double-counting some records because the earlier, partially-completed EMR run had already written partial output before being interrupted. The on-call engineer initially assumed the double-counting was a bug in the final Lambda's aggregation logic and spent most of the incident review examining that function before realizing the true cause lay upstream in the EMR step's output handling. What is the most robust fix?",
     "options": [
       "Switch the EMR step from Spot to On-Demand instances only, since Spot interruptions are the sole cause of the double-counting.",
-      "Remove all retries from the Step Functions state machine so failures require manual intervention instead of automatic reprocessing.",
+      "Remove all retries from the Step Functions state machine's Retry field so failures require manual console intervention instead of automatic reprocessing.",
       "Add an SNS notification after the EMR step so an operator is alerted whenever a retry occurs.",
-      "Make the EMR step's output write idempotent — for example, having it write to a fresh, uniquely-named S3 output location per execution (using the Step Functions execution ID) or overwrite/replace a deterministic path rather than append — so a retried run cannot combine with a prior partial run's output."
+      "Make the EMR step's output write idempotent, e.g. by writing to a fresh, execution-ID-scoped S3 location instead of appending to a shared path."
     ],
     "answer": 3,
     "explanations": [
@@ -3856,7 +3856,7 @@
     "question": "A data engineer configures a Lambda function as a Kinesis Data Streams consumer via an event source mapping, with batch size set to 500 records and a parallelization factor of 5. The team observes that overall throughput increased significantly after raising the parallelization factor from 1 to 5, but they've also noticed that records that were previously guaranteed to be processed in partition-key order are now sometimes processed out of order across concurrent invocations for the same shard. A downstream consumer relies on the original event order for the same device_id to correctly apply a running state machine, and the team has already ruled out a bug in that state machine itself after a thorough code review found no logic errors when fed manually-ordered test data. What is the correct explanation and fix?",
     "options": [
       "Lambda always processes Kinesis records in the exact order they were written to the shard regardless of parallelization factor, so the observed behavior must be an unrelated bug in the downstream state machine.",
-      "This is expected: a parallelization factor greater than 1 allows multiple concurrent Lambda invocations to process different batches from the same shard simultaneously, which can break ordering guarantees for records sharing the same partition key across those concurrent batches — set the parallelization factor back to 1 to preserve strict per-shard ordering, and instead scale throughput by adding more shards.",
+      "A parallelization factor above 1 lets concurrent Lambda invocations process different batches from the same shard, breaking per-key ordering; set it back to 1 and scale throughput by adding shards instead.",
       "Switch to consuming via Kinesis Data Firehose instead of a direct Lambda event source mapping, since Firehose guarantees strict ordering across concurrent readers.",
       "The out-of-order behavior means the event source mapping is misconfigured and should use a batch size of 1 to restore ordering while keeping parallelization factor at 5."
     ],
@@ -3877,7 +3877,7 @@
     "difficulty": "hard",
     "question": "A financial data vendor currently runs a large on-premises Apache Kafka cluster feeding downstream consumers via Kafka Connect sink connectors, including a connector that writes to a legacy on-prem data warehouse. As part of a phased AWS migration, the company stands up Amazon MSK and needs to add a new sink that delivers topic data into S3 as Parquet, while the legacy on-prem sink connector continues running unchanged during the transition (it cannot be touched until a separate compliance sign-off, expected in 6 months). The new S3 sink must guarantee exactly-once delivery semantics and must integrate with existing Kafka Connect tooling and configuration the team already knows, since the two engineers who understand the on-prem connector configuration in depth are both leaving the company within the month and there is no time budget to train the remaining team on an unfamiliar new toolchain. Which approach best fits all these constraints?",
     "options": [
-      "Deploy MSK Connect with the Confluent S3 sink connector (or equivalent Kafka Connect S3 sink) configured for exactly-once semantics, running alongside the existing on-prem Kafka Connect deployment reading from MSK.",
+      "Deploy MSK Connect with a Kafka Connect S3 sink connector configured for exactly-once semantics, running alongside the existing on-prem connector unchanged.",
       "Write a custom Lambda function triggered on a schedule to poll MSK topics and batch-write to S3 as Parquet.",
       "Replace Kafka entirely with Kinesis Data Streams and use Kinesis Data Firehose to deliver to S3, since Firehose natively guarantees exactly-once delivery.",
       "Use AWS DMS to replicate directly from the Kafka cluster to S3."
@@ -3899,7 +3899,7 @@
     "difficulty": "hard",
     "question": "An AWS Glue job with job bookmarks enabled performs an incremental JDBC extract from an on-premises SQL Server table using a bookmark key of order_id, intended to pull only newly inserted rows on each run. After several successful runs, the data team discovers that a batch of rows was silently skipped — those rows had been inserted by a backfill process that assigned them order_id values lower than the current bookmark high-water mark, even though they were inserted after the last successful job run. The downstream finance team only discovered the gap weeks later during a routine reconciliation, by which point the missing rows had already caused a discrepancy between the source system and the data lake's reported order totals. What is the underlying cause and the correct fix?",
     "options": [
-      "Glue job bookmarks track progress using the configured bookmark key's value, and rows with a key value below the current bookmark are always treated as already processed regardless of insertion time — the fix is to use a strictly monotonically increasing column (such as an insert timestamp or an auto-incrementing surrogate column guaranteed to increase with insertion order) as the bookmark key instead of order_id.",
+      "Bookmarks track the bookmark column's high-water mark, so backfilled rows with lower values are skipped as already-processed; use an insertion-order column like a timestamp instead of order_id.",
       "The backfill rows were skipped because the JDBC connection object's timeout was too low, causing partial reads.",
       "Job bookmarks are unreliable for JDBC sources in general and should be replaced entirely with a manual 'last processed timestamp' stored in Parameter Store.",
       "The Glue job simply needs to be re-run with --job-bookmark-option job-bookmark-disable to pick up the missed rows, and bookmarks will continue working correctly afterward with no further changes."
@@ -3922,8 +3922,8 @@
     "question": "A retailer is migrating its on-premises PostgreSQL order database to Aurora PostgreSQL using AWS DMS with a full load followed by ongoing CDC for cutover. The full load of 900 GB completes successfully, but the team discovers that during the multi-hour full-load window, several thousand orders were both inserted and then updated/deleted on the source before the full load task reached those specific tables, and the team is unsure whether ongoing CDC captured changes that occurred during the full load itself. The cutover plan requires zero data loss and the team has one maintenance window before go-live, since the order database backs a customer-facing checkout flow that cannot tolerate an extended outage during business hours and a second window won't be approved by change management for another month. What must the team verify and how should they structure the migration to guarantee correctness?",
     "options": [
       "Use AWS SCT instead of DMS for the entire migration, since SCT handles concurrent changes during migration natively.",
-      "Perform the cutover immediately without further verification, since DMS full-load-and-CDC tasks are guaranteed to be perfectly consistent by default with no configuration required.",
-      "Confirm that CDC capture started (and the CDC start position/timestamp was recorded) before the full load began, since DMS full-load-and-CDC tasks are designed to begin capturing changes at task start and buffer/apply them after full load completes — this ensures changes occurring during full load are not lost, and the team should validate with DMS table statistics and row counts before cutover.",
+      "Perform the cutover immediately without further verification, relying on DMS's default full-load-and-CDC task configuration to have captured all interim changes.",
+      "Confirm CDC capture started before full load began, since full-load-and-CDC buffers changes from task start; validate with DMS table statistics before cutover.",
       "Re-run the full load a second time immediately before cutover to guarantee no rows were missed, since CDC cannot capture changes made during an in-progress full load."
     ],
     "answer": 2,
@@ -3945,7 +3945,7 @@
     "options": [
       "Use S3 Cross-Region Replication to copy MSK's underlying broker storage between regions.",
       "Have producers in both regions write PII-free events directly to a single global MSK cluster spanning both regions, eliminating the need for cross-region replication entirely.",
-      "Use MSK Replicator with a replication policy that filters out PII fields before cross-region replication, configured with the appropriate topic/field-level filtering, so only the non-PII subset ever crosses the region boundary.",
+      "Use MSK Replicator with a replication policy that filters out PII fields (topic/field-level filtering) so only the non-PII subset crosses the region boundary.",
       "Use MirrorMaker 2 to do a full, unfiltered replication of both regional clusters into us-east-1, then run a Glue job in us-east-1 to strip PII fields after the data has already landed."
     ],
     "answer": 2,
@@ -3967,7 +3967,7 @@
     "options": [
       "Amazon AppFlow for both sources, since AppFlow can be configured with a custom connector SDK to talk to any protocol, including proprietary binary protocols.",
       "AWS DMS for the Salesforce sync (treating Salesforce as a database source) and Amazon AppFlow for the legacy proprietary protocol.",
-      "Amazon AppFlow for the Salesforce sync (handles auth, pagination, field filtering, and rate limits natively); a custom application (e.g., on EC2 or in a container within the VPC, connecting over the VPN tunnel) for the proprietary legacy protocol, since AppFlow only supports its list of recognized SaaS connectors.",
+      "AppFlow for the Salesforce sync (native auth, pagination, filtering, rate limits); a custom app over the VPN tunnel for the proprietary protocol.",
       "AWS Glue JDBC connections for both sources, since Glue can connect to any external system given the right network path."
     ],
     "answer": 2,
@@ -3987,7 +3987,7 @@
     "difficulty": "hard",
     "question": "A Glue Spark ETL job configured with G.1X workers (16 GB memory, 1 executor per worker) repeatedly fails with Java heap space OutOfMemoryError while processing a dataset that grew from 200 GB to 1.5 TB over the past year as the business scaled. Investigation shows the failure consistently occurs during a groupBy aggregation on a customer_region column, and CloudWatch metrics show a small number of executors consuming dramatically more memory than others just before failure, while most executors remain lightly loaded. Simply increasing the number of G.1X workers has not resolved the failures, and the on-call engineer's first two attempted fixes — doubling worker count and enabling job bookmarks, neither previously configured — both failed to prevent the same OutOfMemoryError on the next scheduled run. What is the most likely root cause and the best combination of fixes?",
     "options": [
-      "Data skew in customer_region (some regions have vastly more rows than others) is concentrating disproportionate data on a small number of partitions/executors during the groupBy shuffle; the fix is to address the skew (e.g., salting the skewed key or enabling Adaptive Query Execution's skew join handling) and increase worker memory by switching to G.2X or G.4X workers rather than just adding more G.1X workers.",
+      "Skew in customer_region concentrates rows on a few partitions; fix with AQE skew-join handling or key salting plus larger G.2X/G.4X workers.",
       "The dataset has simply outgrown the cluster's total memory; the fix is only to add more G.1X workers until total memory exceeds the dataset size.",
       "The job should be rewritten to avoid using Spark entirely and instead use a Glue Python shell job, which has no memory limits.",
       "The OutOfMemoryError is unrelated to the data or job logic and is caused by an expired Glue job bookmark that needs to be reset."
@@ -4009,10 +4009,10 @@
     "difficulty": "hard",
     "question": "A geospatial imaging company runs Spark jobs on a long-running EMR cluster that reads and writes millions of small (under 1 MB) satellite tile images stored in S3, using EMRFS as the S3 connector. Job run times have degraded significantly over the past several months as the S3 prefix has grown to tens of millions of objects, and CloudWatch shows the Spark job spending a disproportionate amount of time in S3 listing/metadata operations rather than actual computation. The team cannot change the upstream system that produces these small files, since it is operated by the satellite imaging vendor under a fixed multi-year contract with no near-term renegotiation window, but they can change how the EMR job reads and organizes the data. Which combination of changes will most directly address the performance problem?",
     "options": [
-      "Increase the EMR core node instance type to one with more vCPUs, since the bottleneck is compute-bound.",
+      "Increase the EMR core node instance type to one with more vCPUs and network bandwidth, since the bottleneck is compute-bound.",
       "Disable Spark's speculative execution, since duplicate task execution is causing the extra S3 listing overhead.",
       "Switch the storage layer from S3 to EBS volumes attached directly to each core node for lower latency.",
-      "Enable EMRFS consistent view (or migrate off it toward S3's now-strongly-consistent default) and compact the small files into larger objects (targeting roughly 128 MB–1 GB per file) as an intermediate step before the main processing job runs, reducing the total object count the job must list and open."
+      "Compact small files into larger objects (~128 MB–1 GB) as a preprocessing step, cutting the object count the job must list and open."
     ],
     "answer": 3,
     "explanations": [
@@ -4033,8 +4033,8 @@
     "options": [
       "Reduce the number of telemetry fields sent per record so each record is smaller, which will proportionally reduce the number of PUT payload units.",
       "Switch to Kinesis Data Firehose for ingestion, since Firehose has no per-record billing at all.",
-      "Add more shards until throughput bottlenecks disappear, since shard count is the only lever that affects both cost and throughput.",
-      "Switch the producer to use the Kinesis Producer Library (KPL) with record aggregation enabled, which combines many small user records into fewer, larger PutRecords requests — reducing both the number of billed payload units (since each 150-byte record no longer separately rounds up to a full unit) and producer-side API call overhead."
+      "Add more shards so throughput bottlenecks disappear, since higher shard count reduces the number of PUT payload units billed per record.",
+      "Switch the producer to KPL with record aggregation enabled, combining many small records into fewer, larger PutRecords requests."
     ],
     "answer": 3,
     "explanations": [
@@ -4054,9 +4054,9 @@
     "question": "A data engineering team needs to run a lightweight daily transformation: download a 300 MB CSV file from a partner's HTTPS endpoint, apply a handful of column renames and type casts, and write the result as Parquet to S3. The job must complete in under 3 minutes to satisfy a downstream SLA, and the team has a strict monthly compute budget that makes a permanently provisioned or auto-scaling Spark cluster unattractive for a job this small. The team already has similar lightweight jobs running as Glue Python shell jobs elsewhere and wants to stay consistent with that pattern if it fits, since a prior architecture review flagged tool sprawl (too many different job types for similar-sized workloads) as a maintainability risk the team is actively trying to reduce. Which choice best fits both the SLA and cost constraints?",
     "options": [
       "An EMR cluster with 10 core nodes provisioned specifically for this daily job, terminated after each run.",
-      "A Glue Python shell job using pandas (or similar) for the transformation, since the data volume is small enough for single-node processing, avoiding the startup overhead and DPU cost of a full Spark job for a task this lightweight.",
+      "A Glue Python shell job using pandas for the transformation, avoiding the Spark cluster startup overhead and DPU cost of a full Spark job.",
       "An AWS Glue streaming ETL job reading from a Kinesis Data Stream fed by the partner's HTTPS endpoint.",
-      "A full Glue Spark ETL job with G.2X workers and auto-scaling enabled, since Spark is always the more 'correct' choice for any Parquet conversion regardless of data size."
+      "A full Glue Spark ETL job with G.2X workers and auto-scaling enabled, to keep tooling consistent with the team's other larger Spark ETL jobs."
     ],
     "answer": 1,
     "explanations": [
@@ -4076,7 +4076,7 @@
     "question": "A seismic exploration company collects 400 TB of raw sensor data at a remote field site with no reliable internet connectivity beyond an intermittent, low-bandwidth satellite link. The data must reach the company's S3-based data lake within 3 weeks to meet a contractual analysis deadline, and it must remain encrypted both at the field site and in transit. Separately, the company's home-office engineering team needs an ongoing, automated way to sync smaller (under 50 GB per day) processed result files from an on-premises NAS to S3 continuously going forward, with bandwidth throttling so the sync doesn't saturate the office's shared internet link during business hours, since the last time an unthrottled bulk transfer ran during the day it degraded video-conferencing quality for the entire office and prompted a complaint from the facilities team. Which combination of services fits both needs?",
     "options": [
       "Amazon S3 Transfer Acceleration for both use cases, since it is designed specifically for large one-time transfers over unreliable links.",
-      "AWS Snowball Edge devices shipped to and from the field site for the 400 TB bulk transfer (avoiding reliance on the unreliable satellite link), and AWS DataSync for the ongoing NAS-to-S3 sync with its built-in bandwidth throttling controls.",
+      "Snowball Edge shipped to/from the field site for the 400 TB bulk transfer, and AWS DataSync for ongoing NAS-to-S3 sync with bandwidth throttling.",
       "AWS Transfer Family SFTP for the 400 TB field-site transfer, and Snowball Edge for the ongoing daily NAS sync.",
       "AWS DataSync for both the 400 TB field-site transfer and the ongoing NAS sync, since DataSync can handle any data volume given enough time."
     ],
@@ -4100,7 +4100,7 @@
       "This is caused by S3 eventual consistency and will be resolved by enabling S3 Strong Consistency, which is not enabled by default.",
       "This indicates the Glue Data Catalog table definition is out of sync and a crawler must be run immediately to fix the schema before any further writes are attempted.",
       "This indicates S3 is silently corrupting data during concurrent writes and the team must switch to a single-writer architecture immediately to prevent data loss.",
-      "This is expected behavior: Iceberg uses optimistic concurrency control, so when two writers attempt to commit new snapshots concurrently, one commit succeeds and the other fails with a conflict exception and must retry against the new table state — the team should ensure the writer jobs have retry logic (which they do) rather than trying to eliminate concurrent writers."
+      "Expected: Iceberg's optimistic concurrency control means concurrent commits — one succeeds, one retries against new state; existing retry logic is the correct handling."
     ],
     "answer": 3,
     "explanations": [
@@ -4121,7 +4121,7 @@
     "options": [
       "Move all ad-hoc dashboard queries to Amazon Athena querying the same S3 data via Redshift Spectrum's underlying files, bypassing Redshift entirely during peak periods.",
       "Permanently resize the cluster to twice its current node count so it can absorb peak load without concurrency scaling at all.",
-      "Query STV_WLM_QUERY_STATE and SVCS_CONCURRENCY_SCALING_USAGE (or the equivalent system views) to confirm concurrency scaling is engaging during the spikes, and set a Concurrency Scaling usage limit (with an alert or disable action) via the console/CLI to cap the cost contribution from burst capacity while still allowing it to absorb the monthly peak.",
+      "Query SVCS_CONCURRENCY_SCALING_USAGE to confirm scaling is engaging during spikes, and set a Concurrency Scaling usage limit (alert or disable action) to cap burst-capacity cost.",
       "Disable concurrency scaling entirely and instead ask analysts to only run dashboard queries outside the last two weeks of the month."
     ],
     "answer": 2,
@@ -4141,10 +4141,10 @@
     "difficulty": "hard",
     "question": "A logistics company's Redshift fact table stores 2 billion shipment events and uses shipment_id as both its distribution key and its sort key, following what the team believed was a best-practice single-column design. Query performance has degraded severely for the most common analytical query pattern, which joins this fact table against a warehouse_location dimension table on warehouse_id and filters by ship_date range. STL_ALERT_EVENT_LOG shows frequent 'large broadcast' and 'large distribution' events, and node-level disk usage is uneven, with two of the eight nodes consistently near capacity while others are underutilized, prompting an earlier (unsuccessful) attempt by the team to fix the imbalance simply by adding VACUUM and ANALYZE maintenance jobs, which improved nothing. What is the most likely design flaw and the correct fix?",
     "options": [
-      "shipment_id as the distribution key doesn't align with the join key (warehouse_id) used in the most common query, forcing expensive data redistribution across nodes at query time, and shipment_id being highly unique also doesn't help date-range filtering; the fix is to change the distribution key to warehouse_id (aligning with the join pattern) and change the sort key to ship_date (aligning with the range filter), potentially using a compound sort key if both patterns matter.",
+      "shipment_id as distribution key doesn't match the join on warehouse_id, forcing redistribution; fix: distribution key = warehouse_id, sort key = ship_date.",
       "The fix is to convert the fact table's distribution style to ALL, so every node has a full copy and no redistribution is ever needed.",
       "The problem is caused by the dimension table lacking a sort key; sort keys are only relevant on dimension tables, not fact tables, in a star schema.",
-      "The cluster simply needs more nodes added, since uneven disk usage always indicates insufficient total cluster capacity."
+      "The cluster simply needs more nodes added, since Redshift automatically rebalances data evenly across nodes whenever total cluster capacity is sufficient."
     ],
     "answer": 0,
     "explanations": [
@@ -4165,8 +4165,8 @@
     "options": [
       "Switch the table from on-demand to provisioned capacity mode with a very high provisioned throughput, since provisioned mode doesn't have per-partition throttling.",
       "Create a Global Secondary Index on device_id to distribute the hot key's traffic across the index's separate partitions.",
-      "Enable DynamoDB auto scaling, since on-demand tables automatically add unlimited partitions to absorb any single-key hot spot.",
-      "Add a random or calculated suffix to the partition key value specifically for these known hot device_ids at write time (write sharding), spreading their traffic across multiple synthetic partition key values, with reads querying across the known shard suffixes and aggregating results."
+      "Enable DynamoDB auto scaling, since adaptive capacity automatically redistributes a hot key's throughput across additional physical partitions in real time.",
+      "Add a random/calculated suffix to the hot device_ids' partition key (write sharding), spreading writes across synthetic keys and querying all shard suffixes on read."
     ],
     "answer": 3,
     "explanations": [
@@ -4186,7 +4186,7 @@
     "question": "A global e-commerce company uses DynamoDB Global Tables in an active-active configuration across us-east-1, eu-west-1, and ap-southeast-1 to serve a shopping cart application with low-latency local reads/writes in each region. During a flash sale, a customer in the US and a customer service representative in Singapore both update the same cart item (same partition key) within milliseconds of each other, from different regional endpoints, before the update from either region has fully propagated to the other. Neither region's application layer currently implements any explicit conflict-detection logic of its own, since the original single-region design never anticipated concurrent multi-region writes to the same cart item. Which outcome correctly describes DynamoDB Global Tables' conflict resolution behavior in this situation, and what does this imply for application design?",
     "options": [
       "DynamoDB Global Tables blocks the second write and returns a ConditionalCheckFailedException to the application whenever a concurrent cross-region write is detected, requiring the application to retry.",
-      "DynamoDB Global Tables uses a 'last writer wins' conflict resolution policy based on internal timestamps, meaning one of the two concurrent writes will silently overwrite the other with no application-level error — applications with items that can be concurrently modified across regions should design for this by using conditional writes, versioning, or reconciliation logic where losing an update silently is unacceptable.",
+      "Global Tables resolves conflicts via 'last writer wins' on internal timestamps, silently overwriting the loser with no application error; apps needing stronger guarantees should add versioning or conditional writes.",
       "DynamoDB Global Tables automatically merges both concurrent writes field-by-field, so no data is ever lost from concurrent regional updates.",
       "DynamoDB Global Tables requires all writes to route through a single designated 'primary' region, so concurrent writes from two regions to the same item are not actually possible."
     ],
@@ -4210,7 +4210,7 @@
       "The requirement is only achievable using DynamoDB Global Tables instead of Aurora, since only DynamoDB provides active-active multi-region writes.",
       "Standard cross-region read replicas already provide sub-second replication lag and one-command automated regional failover, so the junior engineer's proposal is correct as stated.",
       "Cross-region read replicas are actually sufficient for this requirement as long as Multi-AZ is also enabled on the primary cluster, since Multi-AZ replaces the need for any cross-region failover tooling.",
-      "Standard cross-region Aurora read replicas typically replicate with several seconds to low tens of seconds of lag under normal conditions and, critically, promoting a cross-region read replica to a standalone writable primary during a regional outage is a manual, multi-step operation that will not reliably meet a 1-minute RTO — Aurora Global Database should be used instead, which is purpose-built for sub-minute managed failover (via 'Global Database managed planned/unplanned failover') with typical replication lag under 1 second, while also serving local low-latency reads in the secondary region."
+      "Standard replicas have seconds-to-tens-of-seconds lag and manual promotion, missing the 1-minute RTO; use Aurora Global Database for sub-second replication and managed sub-minute failover with local reads."
     ],
     "answer": 3,
     "explanations": [
@@ -4229,10 +4229,10 @@
     "difficulty": "hard",
     "question": "A ticketing platform runs event-driven order processing where a burst of Lambda functions (scaling from near-zero to several thousand concurrent executions within seconds during a popular on-sale event) each open a short-lived connection to an Aurora PostgreSQL Serverless v2 database to record purchases. During the on-sale spike, the database frequently hits 'too many connections' errors even though Aurora Serverless v2's ACU capacity appears to scale up in time, and purchases fail. Between on-sale events, traffic is very low and the team wants to avoid paying for idle fixed capacity, since the original motivation for choosing Aurora Serverless v2 over a standard provisioned instance was precisely to avoid paying for capacity that sits mostly idle 350 days a year. What combination of changes addresses the connection failures without abandoning serverless scaling?",
     "options": [
-      "Introduce RDS Proxy in front of the Aurora Serverless v2 database so Lambda functions connect to the proxy's pooled connections instead of opening a new direct database connection per invocation, decoupling the burst of Lambda concurrency from the database's actual connection limit.",
+      "Introduce RDS Proxy so Lambda uses pooled connections instead of a direct connection per invocation, decoupling concurrency from the connection limit.",
       "Switch from Aurora Serverless v2 to standard provisioned Aurora with a fixed large instance size that is always running at maximum capacity.",
-      "Switch every Lambda function to use provisioned concurrency, since provisioned concurrency eliminates the connection overhead entirely.",
-      "Increase the Aurora Serverless v2 maximum ACU setting further, since more compute capacity always corresponds to proportionally more available connections."
+      "Switch every Lambda function to use provisioned concurrency, since provisioned concurrency keeps execution environments warm, avoiding the need for a new connection on each invocation.",
+      "Increase the Aurora Serverless v2 maximum ACU setting further, since Aurora Serverless v2's max_connections setting scales linearly with ACU allocation."
     ],
     "answer": 0,
     "explanations": [
@@ -4253,7 +4253,7 @@
     "options": [
       "Disable time travel entirely on the table, since maintaining any snapshot history is fundamentally incompatible with good query performance at this scale.",
       "Delete the underlying Parquet files directly from S3 using the AWS CLI for any file older than 30 days, since Iceberg tables are just folders of Parquet files under the hood.",
-      "Run Iceberg's expire_snapshots procedure on a schedule to remove snapshots older than a defined retention window (e.g., 30 days) — which also allows orphaned data files no longer referenced by any retained snapshot to be identified for removal — combined with a separate remove_orphan_files procedure to clean up files left by failed/incomplete writes, run periodically as ongoing table maintenance.",
+      "Run expire_snapshots on a schedule to prune snapshots past a 30-day retention window, plus remove_orphan_files to clean up failed-write leftovers, as ongoing maintenance.",
       "Recreate the table from scratch weekly, reloading all historical data, since this is the only way to reset accumulated snapshot metadata."
     ],
     "answer": 2,
@@ -4276,7 +4276,7 @@
       "Iceberg tracks columns by name only, meaning the new customer_ref column is silently populated with old historical values from the original dropped column, which is the actual cause of the confusing results.",
       "This indicates a genuine Iceberg bug where dropped column data can leak into a same-named new column, and the team should avoid ever dropping columns from Iceberg tables.",
       "This is expected because Iceberg does not support dropping columns at all, so 'customer_ref' was never actually dropped, only hidden from new queries.",
-      "Iceberg tracks columns internally by a unique field ID, not by name, so the old dropped customer_ref (field ID, say, 12) and the new customer_ref (field ID, say, 47) are never actually confused at the storage/metadata level even though they share a display name; the confusing query results are a naming/human-readability problem, not a data-integrity problem, and the recommended practice is to use distinct, non-reused column names when repurposing a dropped column's name for an unrelated field."
+      "Iceberg tracks columns by a permanent field ID, not name, so the old and new customer_ref are never confused at the storage layer; it's a naming issue, not corruption — avoid reusing dropped column names."
     ],
     "answer": 3,
     "explanations": [
@@ -4297,7 +4297,7 @@
     "options": [
       "Use S3 bucket policies scoped to each consuming account's IAM role to control access, since Lake Formation only supports table-level, not column- or row-level, permissions.",
       "Create two separate physical copies of the table, one pre-filtered for Account B and one pre-filtered for Account C, using scheduled Glue jobs to keep each copy in sync with the source.",
-      "Lake Formation column-level permissions for Account B (excluding ssn and physician_notes) and a Lake Formation data filter combining column-level exclusion (excluding ssn) with a row-level predicate (state = their state) for Account C, both granted via Lake Formation cross-account sharing (Resource Links / LF-Tags) against the single underlying table.",
+      "Column-level permissions for Account B (excluding ssn, physician_notes), and an LF data filter (column exclusion plus row predicate state = theirs) for Account C, via cross-account sharing.",
       "Grant both accounts full unrestricted access to the table and rely on each consuming account's own IAM policies to restrict which columns and rows their analysts can see."
     ],
     "answer": 2,
@@ -4318,7 +4318,7 @@
     "question": "A large enterprise's Lake Formation-governed data lake has grown to over 800 tables across 60 databases, spanning marketing, finance, supply chain, and HR domains. The governance team currently grants access using individual named-resource permissions (grant on specific table X to specific principal Y), and onboarding a new analyst who needs access to 'all finance domain tables tagged as internal-use' now requires manually identifying and granting dozens of individual table permissions, which is error-prone and slow to keep current as new finance tables are added. What Lake Formation capability should replace this approach to make access scale with organizational structure rather than per-table grants?",
     "options": [
       "Create one enormous IAM policy per department that lists every table ARN belonging to that department, updated manually whenever a table is added.",
-      "Lake Formation tag-based access control (LF-TBAC): assign LF-Tags (e.g., domain=finance, classification=internal-use) to databases/tables, and grant principals access based on LF-Tag expressions rather than individual resource names, so new tables tagged appropriately are automatically covered by existing grants without additional manual permissioning.",
+      "LF-TBAC: assign LF-Tags (e.g., domain=finance) to tables and grant access via tag expressions, so newly tagged tables are automatically covered without manual re-granting.",
       "Migrate all data into department-specific AWS accounts so IAM account boundaries alone provide the necessary isolation, eliminating the need for Lake Formation permissions entirely.",
       "Use Glue crawler classifiers to automatically infer which department owns each table based on naming conventions, and grant access purely based on crawler-inferred department names."
     ],
@@ -4339,8 +4339,8 @@
     "difficulty": "hard",
     "question": "A legal research company is building a retrieval-augmented generation system over 8 million legal document chunks, storing embeddings in an Aurora PostgreSQL database with the pgvector extension. The product requirement is sub-100ms p99 query latency for similarity search, the dataset comfortably fits in the chosen Aurora instance's memory once indexed, and the team needs the highest achievable search accuracy since incorrect legal citations returned to users carry real liability risk. A cost-conscious engineer proposes IVF indexing to minimize index build time and memory footprint, since nightly re-indexing after document updates is otherwise slow, and points to a blog post benchmarking IVF as 'good enough' for a different company's much less liability-sensitive product-recommendation use case. Is IVF or HNSW the better choice here, and why?",
     "options": [
-      "IVF is the better choice: since the engineer's primary stated concern is minimizing nightly re-indexing time and memory footprint, and those are IVF's core strengths, IVF should be preferred regardless of the accuracy and latency requirements.",
-      "HNSW is the better choice: the workload prioritizes query latency and especially search accuracy over index build time and memory efficiency, and the dataset comfortably fits in memory — HNSW's multi-layer graph structure is specifically suited to fast, high-accuracy approximate nearest-neighbor search under these conditions, at the accepted cost of slower index builds and higher memory use.",
+      "IVF is the better choice: since the engineer's primary stated concern is minimizing nightly re-indexing time and memory footprint, and pgvector's IVF index still achieves acceptable recall for most similarity-search workloads.",
+      "HNSW is the better choice: the workload prioritizes latency and accuracy over build time/memory, and the dataset fits comfortably in memory — HNSW's graph structure suits fast, high-accuracy ANN search at the cost of slower builds and more memory.",
       "IVF and HNSW produce identical accuracy and latency characteristics on Aurora PostgreSQL specifically, so the choice should be made purely on build-time cost.",
       "Neither index type matters for pgvector performance; the only real lever for both latency and accuracy is the Aurora instance's compute size, so the indexing question is a red herring."
     ],
@@ -4362,7 +4362,7 @@
     "question": "A subscription analytics company's Redshift data warehouse needs to combine three kinds of data in a single dashboard query: hot, frequently-updated 30-day rolling metrics already loaded in Redshift tables; 3 years of historical 'cold' clickstream data sitting as Parquet files in S3 that is queried only occasionally and would be wasteful to fully load into the cluster; and a small, slowly-changing product catalog table that currently lives in an operational Aurora PostgreSQL database and would introduce ETL latency and duplication if copied into Redshift on a schedule. Additionally, the historical S3 query pattern repeats an identical expensive aggregation multiple times per day with unchanged underlying data, and a previous attempt to speed this up by simply scheduling the aggregation as a nightly batch job into a Redshift table was rejected because stakeholders need the ability to run it on demand with arbitrary date ranges, not just a fixed nightly snapshot. Which combination of Redshift features addresses all three needs efficiently?",
     "options": [
       "Use Redshift Spectrum for all three needs, including the live product catalog data, since Spectrum can query any external data source including live operational databases.",
-      "Redshift Spectrum to query the cold S3 clickstream data directly without loading it, a Redshift federated query to read the product catalog live from Aurora PostgreSQL without duplicating it, and a materialized view over the repeated expensive S3 aggregation so it's computed once and served from cache on subsequent identical queries.",
+      "Redshift Spectrum for the cold S3 clickstream, a federated query for the live Aurora product catalog without duplication, and a materialized view to cache the repeated S3 aggregation.",
       "Use AWS DMS to continuously replicate both the S3 clickstream files and the Aurora product catalog into Redshift native tables, avoiding the need for Spectrum or federated queries entirely.",
       "Load all three data sources into Redshift native tables nightly via COPY, since Redshift always performs best when everything lives natively in cluster storage regardless of access pattern."
     ],
@@ -4386,7 +4386,7 @@
       "S3 Tables is a completely different, incompatible table format from Apache Iceberg, so migrating would require rewriting all downstream Athena and Redshift Spectrum queries from scratch.",
       "S3 Tables requires abandoning the Glue Data Catalog entirely and cannot be queried by Athena or Redshift Spectrum, only by a proprietary S3 Tables query API.",
       "S3 Tables only provides storage cost reduction and has no effect on table maintenance operations, so the team's custom Lambda maintenance jobs would still be required unchanged.",
-      "S3 Tables provides a managed Iceberg implementation with automatic table maintenance (including compaction and snapshot management) handled by AWS, removing the need for the team's custom Lambda maintenance jobs, while the table remains queryable through the same Iceberg-compatible engines (Athena, Redshift Spectrum, EMR) via integration with the Glue Data Catalog — the tradeoff is reduced operational burden in exchange for less direct control over the exact maintenance scheduling/parameters compared to fully self-managed jobs."
+      "S3 Tables is managed Iceberg with automatic compaction/snapshot maintenance by AWS, removing custom Lambda jobs, and stays queryable by Athena, Redshift Spectrum, and EMR via Glue Data Catalog."
     ],
     "answer": 3,
     "explanations": [
@@ -4405,8 +4405,8 @@
     "difficulty": "hard",
     "question": "A financial trading platform needs a data store for a real-time risk-limit lookup service: sub-millisecond read latency is required on the hot path (checking a trader's current exposure before allowing a new order), the data must survive an instance or AZ failure without being lost or reverting to stale values (a plain cache that loses state on restart is explicitly unacceptable per the risk team), and write volume is moderate but read volume is extremely high and latency-sensitive. A colleague suggests ElastiCache for Redis since it's the fastest option the team has used before, noting that the trading application's existing session-cache layer already runs on ElastiCache without issue. Why is this the wrong choice here, and what should be used instead?",
     "options": [
-      "Amazon RDS for PostgreSQL with read replicas should be used instead, since relational databases are inherently more durable than any in-memory data store regardless of configuration.",
-      "ElastiCache for Redis (in its typical caching configuration) does not guarantee durability — data can be lost on node failure/restart, and it is fundamentally intended as a cache layer in front of a system of record, not as the durable primary store the risk team requires; Amazon MemoryDB for Redis should be used instead, since it provides the same Redis-compatible sub-millisecond performance while being architected as a durable primary data store with multi-AZ transaction log persistence.",
+      "Amazon RDS for PostgreSQL with read replicas should be used instead, since RDS Multi-AZ synchronous replication provides stronger durability guarantees than any in-memory Redis-compatible engine can offer.",
+      "ElastiCache for Redis doesn't guarantee durability and is meant as a cache, not a system of record; use MemoryDB for Redis, which adds multi-AZ transaction-log durability at the same performance.",
       "ElastiCache for Redis is actually fully durable by default and the colleague's suggestion is correct as-is; no change is needed.",
       "DynamoDB with DAX should be used instead, since DAX alone (without the underlying DynamoDB table) provides both sub-millisecond latency and full durability."
     ],
@@ -4429,7 +4429,7 @@
     "options": [
       "COPY performance is entirely determined by network bandwidth to S3 and cannot be improved through file count or file organization changes.",
       "The load is slow because the files are in Parquet format; converting them to CSV before loading will make COPY dramatically faster since CSV requires no decompression.",
-      "COPY parallelizes ingestion across the cluster's slices, with each file processed by only one slice — with just 40 large files and (for example) 128 total slices across 8 RA3.4xlarge nodes, most slices sit idle during the load; splitting the source files into a number of files that is an even multiple of the total slice count (while keeping individual file sizes reasonable) allows COPY to fully parallelize and use all available cluster capacity.",
+      "COPY assigns one file per slice — with only 40 files across 128 slices, most sit idle; split into a file count that's an even multiple of the slice count to fully parallelize.",
       "The cluster needs to be resized to more nodes, since low CPU utilization during a load always indicates insufficient total cluster capacity."
     ],
     "answer": 2,
@@ -4450,7 +4450,7 @@
     "question": "A healthcare data platform operating under strict data-residency regulation must ensure its S3-based data lake in us-east-1 can recover from a full regional outage with an RPO of 15 minutes and an RTO of 4 hours, while a separate compliance mandate prohibits any patient data from being durably stored outside the United States at any point, even in a DR copy. The team currently has S3 Versioning enabled but no cross-region replication configured, and lifecycle rules transition objects to Glacier Deep Archive after 180 days. A previous DR proposal was rejected by the compliance officer specifically because it involved a European replication target chosen purely for its lower per-GB storage pricing, without anyone first checking the residency rules. What DR architecture satisfies both the recovery objectives and the data-residency constraint?",
     "options": [
       "Rely solely on S3 Versioning within us-east-1 without any cross-region replication, since versioning alone is sufficient to recover from a full regional outage.",
-      "Configure S3 Cross-Region Replication (CRR) from the us-east-1 bucket to a second bucket in us-west-2 (both within the United States), with replication time control (RTC) enabled to provide a predictable replication SLA that supports the 15-minute RPO target, while keeping both the primary and DR copy entirely within US regions to satisfy data residency.",
+      "Configure S3 CRR from us-east-1 to us-west-2 (both within the US) with Replication Time Control for a predictable SLA meeting the 15-minute RPO, keeping both copies in-country.",
       "Configure Cross-Region Replication to a bucket in eu-west-1 for geographic diversity, since disaster recovery copies are always exempt from data-residency rules.",
       "Use S3 Same-Region Replication (SRR) to a second bucket within us-east-1, since same-region replication provides equivalent regional-outage protection to cross-region replication."
     ],
@@ -4471,10 +4471,10 @@
     "difficulty": "hard",
     "question": "A logistics company's Glue Data Catalog table for shipment events has grown to over 150,000 partitions (partitioned by year/month/day/hour/warehouse_id), accumulated over several years of hourly ingestion across hundreds of warehouses. Athena queries against this table, even ones with a narrow date-range WHERE clause, have become extremely slow to even begin executing, and the team has also noticed their Glue crawler now takes over 3 hours to complete a full run, driving up both query latency and crawler cost. The team cannot reduce the actual partition granularity because downstream consumers depend on hourly, per-warehouse partitioning, and a proposal to consolidate partitions was already vetoed by the warehouse operations team, whose per-site dashboards rely on being able to filter to a single warehouse's hourly data efficiently. What should they do to address both symptoms?",
     "options": [
-      "Increase the number of Glue DPUs allocated to the crawler, since crawler slowness is always a compute capacity problem rather than a scanning-scope problem.",
-      "Reduce partition cardinality by removing the warehouse_id partition column, consolidating all warehouses into shared date-only partitions, since fewer partitions always means better performance regardless of downstream query patterns.",
+      "Increase the number of Glue DPUs allocated to the crawler, since Glue crawler DPU allocation directly determines how many S3 partitions can be scanned per second.",
+      "Reduce partition cardinality by removing the warehouse_id partition column, consolidating all warehouses into shared date-only partitions, since fewer partitions reduces S3 listing overhead during query planning.",
       "Migrate the table off the Glue Data Catalog entirely and have Athena read the S3 prefix directly without a catalog, since catalogs are the source of the slowdown at this partition count.",
-      "Enable partition indexes on the Glue table (to speed up partition pruning/lookup for Athena's query planning) and switch from full crawler re-scans to targeted, incremental partition registration (e.g., via the Glue API or an event-driven mechanism triggered per new batch) instead of a full crawler run on the entire dataset."
+      "Enable Glue partition indexes to speed up Athena's partition pruning, and switch from full crawler re-scans to targeted, incremental partition registration (e.g., via the Glue API per new batch)."
     ],
     "answer": 3,
     "explanations": [
@@ -4494,14 +4494,14 @@
     "question": "A retail analytics company runs a Redshift cluster shared by two very different workloads on the same WLM configuration: fast, frequent BI dashboard queries (typically sub-second, run thousands of times per hour by an embedded analytics tool) and heavier nightly batch ETL transformations (each running for 20-40 minutes). Dashboard users have started reporting inconsistent response times, sometimes sub-second and sometimes taking 15-20 seconds, seemingly at random throughout the business day, even though ETL only runs overnight. The team has a strict monthly Redshift cost ceiling that rules out cluster resizing, and needs the dashboard queries to consistently execute in well under 2 seconds, since the embedded analytics tool is customer-facing and appears inside the company's own paid product, making slow dashboard loads a visible product-quality complaint rather than just an internal annoyance. What should they configure?",
     "options": [
       "Move all dashboard queries to run against a manually maintained read replica cluster kept in sync via nightly UNLOAD/COPY, since Redshift has no way to prioritize short queries within a single cluster.",
-      "Convert all dashboard queries into materialized views refreshed every second, since materialized views always execute faster than any query against base tables regardless of query complexity or refresh overhead.",
-      "Enable Short Query Acceleration (SQA), which automatically detects short-running queries and routes them to a dedicated queue with dedicated resources, prioritizing them ahead of longer-running queries competing for the same WLM queue slots — combined with reviewing WLM queue concurrency settings to ensure dashboard queries aren't queuing behind other ad-hoc long-running queries during the day.",
+      "Convert all dashboard queries into materialized views refreshed every second, since materialized views pre-compute and cache results, avoiding repeated scans of base tables.",
+      "Enable Short Query Acceleration (SQA), which automatically detects short queries and routes them to a dedicated queue ahead of longer queries, combined with reviewing WLM queue concurrency settings.",
       "Disable WLM entirely and let all queries compete for cluster resources equally, since manual WLM configuration is the root cause of inconsistent performance."
     ],
     "answer": 2,
     "explanations": [
       "A – Incorrect. Standing up and manually syncing a second read replica cluster adds meaningful ongoing cost (a second cluster running continuously) and operational complexity that likely violates the stated cost ceiling, and it's a far heavier solution than the purpose-built SQA feature that directly addresses this exact symptom.",
-      "B – Incorrect. Materialized views are useful for caching specific repeated expensive queries, but claiming they 'always execute faster... regardless of complexity or refresh overhead' is an overgeneralization, and refreshing every second for many different dashboard query patterns would itself consume significant cluster resources, likely worsening contention rather than fixing the described root cause of WLM queue competition.",
+      "B – Incorrect. Materialized views are useful for caching specific repeated expensive queries, but refreshing every second for many different dashboard query patterns would itself consume significant cluster resources, likely worsening contention rather than fixing the described root cause of WLM queue competition.",
       "C – Correct. Short Query Acceleration is a Redshift feature purpose-built for exactly this symptom: fast, short queries getting stuck behind longer-running queries in a shared WLM queue, causing inconsistent latency. SQA uses machine learning to predict query duration and automatically prioritizes short queries into a dedicated queue with dedicated resources, and reviewing WLM concurrency (in case daytime ad-hoc/other queries are competing for the same slots as dashboard queries) complements this — both are configuration changes, not cluster resizing, fitting the cost ceiling.",
       "D – Incorrect. Disabling WLM entirely removes any prioritization mechanism at all, letting long-running and short queries compete completely unmanaged — this would likely make the inconsistent dashboard latency worse, not better, since nothing would protect short queries from queuing behind longer ones."
     ],
@@ -4516,7 +4516,7 @@
     "question": "A financial services company runs a nightly AWS Glue Spark ETL job that joins a 2 TB fact table of transactions against a 400 GB dimension table of merchant records, both read from S3 Parquet. The job SLA is 90 minutes but it now regularly takes 3 hours, and the Spark UI shows one executor processing 85% of the shuffle data while the other 39 executors sit idle for most of the run. The platform team has already tried doubling the worker count and the DPU allocation, but runtime barely improved. The company has a hard cost ceiling that prohibits moving to EMR, and compliance requires the job to keep running entirely within Glue's managed environment. A senior engineer suspects the merchant_id join key is unevenly distributed, with a small number of large merchants accounting for a disproportionate share of transaction rows. What should the team do to resolve the bottleneck without violating the EMR restriction?",
     "options": [
       "Convert the dimension table to a broadcast join by disabling AQE, forcing Spark to replicate the smaller table to every executor and eliminating the shuffle entirely.",
-      "Salt the skewed join key by appending a random suffix to merchant_id on both sides of the join before joining, then aggregate the results, to spread the skewed rows across multiple partitions.",
+      "Salt the merchant_id join key with a random suffix on both sides before joining, then aggregate the results to redistribute the skewed rows.",
       "Increase the number of Glue DPUs further and enable Auto Scaling so Glue can add executors dynamically during the shuffle phase.",
       "Switch the job from a Spark join to a Glue DynamicFrame join, which automatically rebalances partitions without any code changes."
     ],
@@ -4540,7 +4540,7 @@
       "Wrap the entire state machine in a single top-level Retry block covering all states, and add a global Catch block routing any failure to the notification state.",
       "Configure an EventBridge rule that detects the Step Functions Failed execution status and automatically starts a brand-new execution of the same state machine from the beginning.",
       "Replace Step Functions Standard Workflow with Express Workflow so failed executions are automatically retried at-least-once by the underlying service without any state machine changes.",
-      "Add a Retry field to the EMR step's state definition specifying the transient error type, MaxAttempts, and BackoffRate, and add a Catch field on that same state routing to the cleanup/notification state on final failure."
+      "Add a Retry field to the EMR step specifying the error type, MaxAttempts, and BackoffRate, and a Catch field on that step routing to the cleanup/notification state."
     ],
     "answer": 3,
     "explanations": [
@@ -4559,7 +4559,7 @@
     "difficulty": "hard",
     "question": "A data engineering team supports 60 AWS Glue Spark ETL jobs spread across 4 AWS accounts feeding a central data lake. When a job fails at 3 AM, the on-call engineer currently has to log into each account's console individually, locate the right CloudWatch log group, and manually search through megabytes of Spark driver/executor logs to find the root-cause stack trace, which routinely takes over 45 minutes per incident and delays the morning reporting SLA. Leadership wants a solution that centralizes log search across all 4 accounts into one place, lets engineers run ad-hoc filter/aggregation queries like 'show me every ERROR line across all Glue jobs in the last hour', and requires minimal new infrastructure to operate. Which approach best satisfies these requirements?",
     "options": [
-      "Set up cross-account log group subscriptions or a centralized CloudWatch Logs destination so all 4 accounts' Glue log groups stream into one central account, then use CloudWatch Logs Insights to run ad-hoc filter/aggregation queries across the consolidated log groups.",
+      "Set up cross-account log subscriptions (or a centralized CloudWatch Logs destination) so all 4 accounts' Glue log groups stream into one account, then query them with CloudWatch Logs Insights.",
       "Configure each Glue job to write logs directly to a shared Amazon OpenSearch Service domain in a central account using the Spark log4j appender, and build Kibana dashboards for search.",
       "Enable AWS CloudTrail Lake in each account and run SQL queries against the management events to identify which Glue job runs failed.",
       "Have each account export its Glue CloudWatch Logs to S3 nightly via a scheduled Lambda function, then query the exported files ad-hoc using Amazon Athena with a Glue crawler-maintained table."
@@ -4581,17 +4581,17 @@
     "difficulty": "hard",
     "question": "A retail company's AWS Glue Spark job ingests daily sales files and writes Parquet output partitioned by sale_date to an S3 prefix queried by Athena. Over the past two months, Athena query latency against the current month's partitions has crept from 4 seconds to over 45 seconds, even though the underlying row counts have grown only modestly. Investigating the S3 prefix, the data engineer finds that the upstream source system now emits sales events in thousands of small near-real-time increments throughout the day rather than one nightly batch, and the Glue job appends each increment as its own Parquet file without any consolidation step, resulting in over 40,000 files of a few KB each in the current month's partitions. The team cannot change the upstream emission pattern and needs Athena query performance restored without abandoning the existing partitioning scheme. What should they implement?",
     "options": [
-      "Add a scheduled Glue compaction job that periodically reads all small files within a partition and rewrites them as a smaller number of larger Parquet files in the 128 MB–1 GB range, replacing the originals.",
-      "Switch the Athena workgroup to enforce a per-query data scan limit so runaway small-file queries are cut off before consuming excessive resources.",
-      "Convert the output format from Parquet to Avro, which handles many small files more efficiently than Parquet during Athena query planning.",
-      "Increase the number of Glue DPUs allocated to the ingestion job so it can write the small files to S3 faster."
+      "Query Redshift's STL_LOAD_ERRORS (or SYS_LOAD_ERROR_DETAIL on RA3/Serverless) system view for the failed rows and rejection reasons.",
+      "Check AWS CloudTrail for PutObject events on the S3 staging prefix to confirm which files were actually written before the COPY command ran.",
+      "Re-run the Glue job with the --enable-continuous-cloudwatch-log flag enabled to capture more granular Spark executor logs.",
+      "Enable AWS Config rules on the Redshift cluster to detect configuration drift that might explain the missing rows."
     ],
     "answer": 0,
     "explanations": [
-      "A – Correct. This is the classic small-file problem: too many tiny files inflate per-file open/list/metadata overhead during query planning and execution. A periodic compaction job that merges small files into fewer, appropriately sized (128 MB–1 GB) Parquet files directly fixes the overhead while preserving the existing date partitioning.",
-      "B – Incorrect. Capping scanned data protects against cost overruns but doesn't fix the underlying performance problem — it would just make queries fail or truncate results rather than run efficiently.",
-      "C – Incorrect. Avro is a row-based format not particularly suited to Athena analytical query patterns, and changing format doesn't address the small-file count itself, which is the actual bottleneck regardless of file format.",
-      "D – Incorrect. Faster DPU-driven writes don't address the root problem — Athena's slowdown is caused by query-time overhead of opening and reading metadata from tens of thousands of tiny files, not by how fast the files were written."
+      "A – Correct. When a Redshift COPY command loads rows that violate target column constraints (like exceeding a VARCHAR length), by default it can skip/reject the offending rows without failing the overall COPY. Redshift records exactly which rows failed and why in its own system error tables — STL_LOAD_ERRORS on provisioned clusters, or SYS_LOAD_ERROR_DETAIL for newer/serverless deployments — which is precisely the kind of silent failure this scenario describes, since Glue's own logs would show 'success' because the COPY command itself technically succeeded.",
+      "B – Incorrect. CloudTrail would confirm the PutObject API calls happened, but that's already established (correct number/timing of files) — it provides no information about the content of those files or why the COPY rejected specific rows.",
+      "C – Incorrect. More verbose Glue/Spark logs won't show anything because the failure isn't happening inside the Glue job at all — the Glue job's responsibility ends once it successfully writes the staging files and issues/triggers the COPY; the row-level rejection happens inside Redshift's own COPY execution.",
+      "D – Incorrect. AWS Config tracks resource configuration state and drift (like cluster parameter group changes), not data-loading errors from a COPY command — this is an unrelated governance tool for this symptom."
     ],
     "topic": "The small-file problem occurs when many tiny files accumulate in a partition, causing disproportionate per-file overhead (open, list, metadata read) relative to actual data volume — a classic symptom is a job or query that takes a long time for the amount of data it's actually processing. The standard remedy tested on the exam is periodic compaction (via Glue or an equivalent batch job) merging small files toward the 128 MB–1 GB optimal file-size range, distinct from partitioning fixes (which address scan scope, not file count) or format conversion alone (which doesn't address file count either).",
     "set": 4,
@@ -4603,16 +4603,16 @@
     "difficulty": "hard",
     "question": "A media company operates a real-time pipeline where Amazon Kinesis Data Streams feeds a Lambda consumer via an event source mapping, transforming records and writing them to Amazon OpenSearch Service for a live analytics dashboard. Two weeks ago, the team noticed dashboard data was significantly delayed — sometimes by over an hour — and iterator age metrics on the shard climbed steadily throughout each day. Investigation reveals one specific malformed record type, submitted by a buggy upstream producer roughly once every few thousand records, consistently causes the Lambda function to throw an unhandled exception. Because the event source mapping's default retry behavior keeps retrying the same batch containing that record indefinitely, all subsequent records on that shard are blocked from processing until the batch eventually ages out of the stream's retention window. The company cannot fix the upstream producer in the short term. What change to the Lambda event source mapping configuration will prevent one bad record from blocking an entire shard while still processing the malformed record for later inspection?",
     "options": [
-      "Reduce the Kinesis stream's retention period so malformed batches age out and stop blocking the shard more quickly.",
-      "Increase the number of shards in the stream to spread the malformed records across a larger number of parallel consumers.",
-      "Configure a maximum record age and a bisect-on-function-error setting, along with a maximum retry attempts value and an on-failure destination (such as an SQS queue) on the event source mapping, so poison-pill records are isolated and routed aside after limited retries instead of blocking the shard indefinitely.",
-      "Increase the Lambda function's timeout value so it has more time to process the malformed record before failing."
+      "Reduce the Kinesis stream's RetentionPeriodHours (for example from 168 hours down to 24) so malformed batches carrying the poison-pill record age out of the stream and stop blocking the shard sooner.",
+      "Increase the number of shards in the stream via UpdateShardCount and let Kinesis re-partition records by partition key across the additional parallel consumers.",
+      "Configure MaximumRecordAgeInSeconds, BisectBatchOnFunctionError, and MaximumRetryAttempts, plus an on-failure destination such as an SQS queue, on the event source mapping.",
+      "Increase the Lambda function's configured Timeout value, up to the 15-minute maximum, so it has more time to process the malformed record before the invocation fails."
     ],
     "answer": 2,
     "explanations": [
       "A – Incorrect. Shortening retention doesn't fix the blocking behavior while it's happening — it only reduces how long the problem persists after the fact, and risks permanently losing legitimate data that hasn't been processed yet.",
       "B – Incorrect. Adding shards doesn't isolate the specific malformed record; whichever shard it lands on (by partition key) would still block in the same way, since the root cause is unbounded retry of one bad record, not insufficient parallelism.",
-      "C – Correct. Setting MaximumRetryAttempts caps how many times the mapping retries a failing batch before giving up, BisectBatchOnFunctionError splits a failing batch to isolate the specific bad record, and an on-failure destination (like SQS) routes that isolated poison-pill record aside for later inspection instead of endlessly blocking the shard — this is exactly the documented mechanism for handling one bad record among many good ones.",
+      "C – Correct. MaximumRetryAttempts caps how many times the mapping retries a failing batch before giving up, BisectBatchOnFunctionError splits a failing batch to isolate the specific bad record, and an on-failure destination (like SQS) routes that isolated poison-pill record aside for later inspection instead of endlessly blocking the shard — this is exactly the documented mechanism for handling one bad record among many good ones.",
       "D – Incorrect. The function isn't timing out — it's throwing an exception on a specific malformed record — so increasing the timeout has no effect on this failure mode; this is a classic red herring since the two symptoms look similar but have different causes."
     ],
     "topic": "Kinesis-to-Lambda event source mappings retry failed batches by default, and an unhandled exception on a single 'poison pill' record can block all subsequent records on that shard indefinitely since Kinesis (unlike SQS) processes records in order per shard. The documented fix is configuring MaximumRetryAttempts, BisectBatchOnFunctionError, and an on-failure destination to isolate and route aside the specific bad record after a bounded number of retries. This is a hard exam pattern because 'increase the timeout' is a tempting but wrong distractor — the failure is an exception, not a timeout, and the fix lives in the event source mapping's error-handling configuration, not the function's own settings.",
@@ -4626,14 +4626,14 @@
     "question": "A subscription analytics company runs a nightly AWS Glue Spark job that loads 250 GB of aggregated Parquet data into Amazon Redshift using a COPY command from an S3 staging prefix. Yesterday the Glue job's run history shows a green 'Succeeded' status with zero errors, and CloudWatch metrics for the job show no anomalies, yet this morning's BI dashboards are missing roughly 15% of expected rows. The data engineer confirms the correct number of Parquet files landed in the S3 staging prefix at the correct time. The team suspects some rows failed to load into Redshift due to a data type mismatch introduced by an upstream schema change (a new column containing values that exceed the target VARCHAR column's defined length), but nothing in Glue's own CloudWatch log group indicates any problem. Where should the team look to find the actual records that failed to load and the specific reason each one was rejected?",
     "options": [
       "Query Redshift's own system logging views, such as STL_LOAD_ERRORS (or SYS_LOAD_ERROR_DETAIL on RA3/Redshift Serverless), which record the specific rows and reasons for COPY command load failures.",
-      "Check AWS CloudTrail for PutObject events on the S3 staging prefix to confirm which files were actually written before the COPY command ran.",
-      "Re-run the Glue job with the --enable-continuous-cloudwatch-log flag enabled to capture more granular Spark executor logs.",
-      "Enable AWS Config rules on the Redshift cluster to detect configuration drift that might explain the missing rows."
+      "Check AWS CloudTrail's data-event history for GetObject/PutObject calls against the S3 staging prefix to confirm exactly which byte ranges of each file the COPY command actually read.",
+      "Re-run the Glue job with the --enable-continuous-cloudwatch-log flag enabled and review the DPU-level Spark executor memory and shuffle metrics for anomalies.",
+      "Enable AWS Config rules on the Redshift cluster's parameter group to detect and alert on any configuration drift that might explain the missing rows."
     ],
     "answer": 0,
     "explanations": [
       "A – Correct. When a Redshift COPY command loads rows that violate target column constraints (like exceeding a VARCHAR length), by default it can skip/reject the offending rows without failing the overall COPY, and it records exactly which rows failed and why in Redshift's own system error tables (STL_LOAD_ERRORS on provisioned clusters, or SYS_LOAD_ERROR_DETAIL for newer/serverless) — this is precisely the kind of silent failure the scenario describes, and Glue's own logs would show 'success' because the COPY command itself technically succeeded.",
-      "B – Incorrect. CloudTrail would confirm the PutObject API calls happened, but that's already established (correct number/timing of files) — it provides no information about the content of those files or why the COPY rejected specific rows.",
+      "B – Incorrect. CloudTrail data events would confirm the read API calls happened, but that's already established (correct files landed at the correct time) — it provides no information about the content of those files or why the COPY rejected specific rows.",
       "C – Incorrect. More verbose Glue/Spark logs won't show anything because the failure isn't happening inside the Glue job at all — the Glue job's responsibility ends once it successfully writes the staging files and issues/triggers the COPY; the row-level rejection happens inside Redshift's own COPY execution.",
       "D – Incorrect. AWS Config tracks resource configuration state and drift (like cluster parameter group changes), not data-loading errors from a COPY command — this is an unrelated governance tool for this symptom."
     ],
@@ -4648,8 +4648,8 @@
     "question": "A data engineering team manages a Redshift provisioned cluster shared by two workloads: a finance team's nightly batch ETL jobs that run reliably in about 45 minutes each night, and an analytics team's ad-hoc BI dashboard queries that spike unpredictably during the last week of each month as month-end reports are generated, sometimes queuing for 20+ minutes behind the batch ETL. The company's finance controller has mandated a strict monthly compute cost ceiling for the cluster that cannot be exceeded, ruling out simply resizing to a permanently larger node type. Leadership wants month-end BI query queuing eliminated without touching the cost ceiling for the other 3 weeks of the month, and does not want to introduce an entirely separate always-on cluster for the analytics team. Which approach satisfies all constraints?",
     "options": [
       "Enable Redshift's Elastic Resize on a manual weekly schedule, resizing up every Friday and back down every Monday regardless of actual month-end timing.",
-      "Migrate the finance team's ETL jobs onto Redshift Serverless, so their per-second billing naturally responds to variable batch volume.",
-      "Configure separate WLM queues for the two workloads with the analytics queue enabled for Concurrency Scaling, so extra transient capacity automatically activates only when the analytics queue experiences bursts, keeping baseline monthly cost close to the provisioned cluster's steady-state cost.",
+      "Migrate the finance team's ETL jobs onto Redshift Serverless, so their per-second billing naturally responds to variable nightly batch volume.",
+      "Configure separate WLM queues per workload, with the analytics queue enabled for Concurrency Scaling so extra transient capacity activates automatically only during bursts.",
       "Permanently resize the provisioned cluster to the next larger node type so it has enough headroom to handle month-end concurrency spikes year-round."
     ],
     "answer": 2,
@@ -4669,7 +4669,7 @@
     "difficulty": "hard",
     "question": "A logistics company runs an AWS Glue Data Quality ruleset on every incoming batch of shipment records before they land in the curated zone of the data lake. The rules assert that shipment_id must be unique, delivery_date must not be null, and package_weight_kg must fall between 0.01 and 1000. For the past year this has worked well on daily batches of roughly 2 million records, completing the full-row evaluation in under 10 minutes. The company just onboarded a new partner whose daily batch is 400 million records, and the same Data Quality ruleset evaluating every row now takes over 3 hours, pushing the pipeline past its SLA and delaying downstream reporting. The data engineer needs to reduce data quality evaluation time substantially while still catching the overwhelming majority of quality issues and preserving the ability to still run a full audit periodically. What is the most appropriate adjustment?",
     "options": [
-      "Configure the Glue Data Quality ruleset to evaluate against a statistically representative sample of each day's batch rather than every row, while retaining an option to run a full-row evaluation on a periodic (e.g., weekly) basis for deeper audit coverage.",
+      "Configure the Glue Data Quality ruleset to evaluate a statistically representative sample of each batch instead of every row, while retaining an option to run a full-row evaluation weekly for deeper audit coverage.",
       "Disable data quality checks for this new partner's data source only, since the volume increase makes full validation impractical, and rely on downstream dashboard anomalies to surface any issues.",
       "Remove the uniqueness rule entirely, since uniqueness checks are the most computationally expensive rule type and the other two rules are less costly to evaluate.",
       "Move the data quality checks out of Glue entirely and into a downstream Athena SQL query run manually by an analyst once a week."
@@ -4691,10 +4691,10 @@
     "difficulty": "hard",
     "question": "A payments company built a real-time fraud-scoring pipeline: transactions flow through Amazon API Gateway to a Lambda function, which invokes an AWS Step Functions Express Workflow that calls two additional Lambda functions in sequence to compute a fraud score, then writes the result to DynamoDB. Under normal load the pipeline runs in under 400 milliseconds end-to-end. During a recent flash-sale event, the team noticed a subset of transactions never received a fraud score at all, with no corresponding error logged anywhere in CloudWatch for the affected transaction IDs, and traced the gap to executions of the Express Workflow that apparently vanished without any Step Functions execution history entry. The team wants to understand why some Express Workflow invocations leave no trace at all, and how to guarantee they can always investigate execution outcomes going forward. What is the correct explanation and fix?",
     "options": [
-      "Express Workflows only execute successfully when invoked synchronously from API Gateway directly; the intermediate Lambda function invoking Step Functions asynchronously is causing invocations to be lost.",
-      "The vanishing executions indicate that Express Workflows silently drop invocations above a hard concurrency ceiling; the team should switch to Standard Workflows to guarantee no invocation is ever dropped under load.",
-      "Express Workflows do not retain full execution history in the Step Functions console by default the way Standard Workflows do; the team must explicitly enable CloudWatch Logs logging (at the desired log level, e.g., ALL) for the Express state machine to capture and retain execution-level detail for every invocation.",
-      "Express Workflow executions are always fully logged automatically by default just like Standard Workflows; the missing entries indicate a Step Functions service outage that AWS support should investigate."
+      "Express Workflows only execute successfully when invoked synchronously from API Gateway directly; the intermediate Lambda invoking Step Functions asynchronously is losing invocations.",
+      "The vanishing executions indicate Express Workflows silently drop invocations above a hard concurrency ceiling; the team should switch to Standard Workflows to avoid dropped invocations.",
+      "Express Workflows do not retain execution history in the console by default; the team must explicitly enable CloudWatch Logs (at a level such as ALL) on the state machine to capture it.",
+      "Express Workflow executions are always fully logged automatically by default just like Standard Workflows; the missing entries indicate a Step Functions service outage."
     ],
     "answer": 2,
     "explanations": [
@@ -4736,9 +4736,9 @@
     "question": "A subscription streaming company built a data quality monitoring dashboard that watches a CloudWatch custom metric representing the daily row count landing in its core viewership fact table. The team configured a static CloudWatch Alarm that fires whenever the daily count drops below 80% of a fixed baseline value set six months ago. Over the past two months the alarm has fired nearly every Monday (when weekend viewership naturally spikes and Monday counts genuinely dip relative to weekend peaks) and stayed silent during an actual data pipeline outage that only reduced volume by 15% on a Tuesday, a day when volumes are normally much higher than the static baseline assumed. The on-call team has started ignoring alerts due to persistent false positives, and is worried about missing a real future incident. What change would most effectively address both the false positives and the missed detection, given that viewership is a genuinely seasonal metric that fluctuates predictably by day of week?",
     "options": [
       "Remove the alarm entirely and instead have an engineer manually review the row count dashboard once per day.",
-      "Increase the alarm's threshold percentage from 80% to 95% of the same static baseline to make it more sensitive to smaller drops.",
-      "Lower the alarm's evaluation period from a daily granularity to hourly, keeping the same fixed 80% threshold, so deviations are caught sooner.",
-      "Replace the static threshold with a CloudWatch Anomaly Detection alarm on the same metric, which uses a machine-learning-derived band that accounts for the metric's historical seasonal and weekly patterns, and alarm when the metric falls outside the expected band."
+      "Increase the alarm's threshold percentage from 80% to 95% of the same static six-month-old baseline value to make it more sensitive to smaller drops.",
+      "Lower the alarm's evaluation period from a daily granularity to hourly, keeping the same fixed 80%-of-baseline threshold, so deviations are caught sooner.",
+      "Replace the static threshold with a CloudWatch Anomaly Detection alarm on the metric, using its ML-derived band that accounts for weekly seasonality."
     ],
     "answer": 3,
     "explanations": [
@@ -4780,7 +4780,7 @@
     "question": "A ride-hailing company's core operational dashboard, viewed by hundreds of regional managers throughout the business day, is built in Amazon QuickSight and queries an Amazon Redshift cluster directly on every dashboard refresh (auto-refresh every 60 seconds). During peak hours, the Redshift cluster's CPU utilization spikes heavily and ad-hoc analyst queries on the same cluster start queuing behind the dashboard's repeated queries, and the finance team is separately concerned that per-session QuickSight costs are climbing as the regional manager headcount grows. The underlying dashboard data only actually changes every 15 minutes when a batch job refreshes the Redshift summary tables. What QuickSight configuration change would reduce both the Redshift load and the ongoing per-session cost pressure, without reducing how current the data appears to viewers beyond the natural 15-minute refresh cadence?",
     "options": [
       "Reduce the dashboard's client-side auto-refresh interval from 60 seconds to 15 minutes while keeping the dataset in direct query mode against Redshift.",
-      "Switch the dashboard's QuickSight dataset to SPICE with a scheduled refresh every 15 minutes, so dashboard views are served from QuickSight's in-memory engine instead of querying Redshift directly on every refresh.",
+      "Switch the dashboard's dataset to SPICE with a 15-minute scheduled refresh, serving views from QuickSight's in-memory engine instead of Redshift on every refresh.",
       "Migrate the underlying Redshift cluster to Redshift Serverless so it scales compute automatically during dashboard query bursts.",
       "Enable Redshift Concurrency Scaling on the WLM queue serving the QuickSight dashboard queries so extra transient capacity absorbs the repeated dashboard load."
     ],
@@ -4803,15 +4803,15 @@
     "options": [
       "The Glue job's IAM role lost permission to read the renamed column, since IAM policies in Glue are scoped per-column-name and must be manually updated whenever a source schema changes.",
       "The Glue job needs its job bookmark reset, since bookmarks store the schema of previously processed data and will keep referencing the old column name until manually cleared.",
-      "Glue Studio's visual canvas nodes reference source columns by their schema definition captured at the time the job was authored; because the JDBC source table's actual column was renamed, the node's captured schema is now stale and must be updated (or the job's schema mappings refreshed) to reference the new column name.",
-      "Renaming a column in the source Aurora table automatically breaks the JDBC connection's SSL certificate validation, which is unrelated to the specific column name but happens to produce a similarly worded AnalysisException."
+      "Glue Studio's visual nodes capture source schema at authoring time; because Aurora's column was renamed, the node's cached schema is stale and its mapping must be updated to the new name.",
+      "Renaming a column in the source Aurora table triggers automatic SSL certificate rotation on the JDBC connection, and the resulting handshake failure happens to produce a similarly worded exception."
     ],
     "answer": 2,
     "explanations": [
       "A – Incorrect. IAM policies for Glue's access to JDBC sources are not scoped at the individual column-name level in this way; this is a fabricated mechanism that doesn't reflect how Glue/IAM permissions actually work for JDBC connections.",
       "B – Incorrect. Job bookmarks track which records/files have already been processed to avoid reprocessing, not the schema of the data itself; resetting a bookmark would not resolve a column-name mismatch.",
       "C – Correct. Glue Studio visual jobs capture the source schema (column names/types) at authoring time as part of each transform node's configuration; when the actual source schema changes independently (like a column rename performed directly in the database), the job's captured node definitions become stale and reference a column that no longer exists, producing exactly this kind of AnalysisException at runtime even though the visual canvas doesn't automatically detect or flag the drift — the fix is updating the node's schema/output mapping (or editing the underlying generated script) to reference the new column name.",
-      "D – Incorrect. A column rename has no relationship to SSL/TLS certificate validation on the JDBC connection; this conflates two unrelated concerns and the specific AnalysisException wording (referencing an unresolved column) is inconsistent with a certificate/connectivity failure."
+      "D – Incorrect. A column rename has no relationship to SSL/TLS certificate rotation on the JDBC connection; this conflates two unrelated mechanisms, and the specific AnalysisException wording (referencing an unresolved column) is inconsistent with a certificate/handshake failure."
     ],
     "topic": "AWS Glue Studio visual ETL jobs capture source schema as part of each node's static configuration at design time; when the actual underlying source schema drifts (a column renamed, dropped, or retyped directly at the source) without the Glue job being updated to match, the job fails at runtime with a Spark AnalysisException referencing the now-nonexistent column, even though the visual canvas shows no error until the job actually executes. This tests recognizing that visual ETL tools don't dynamically revalidate against live source schema — schema drift is a real operational failure mode requiring the job definition itself to be updated, distinct from permissions, connectivity, or bookmark issues that produce superficially similar-sounding but mechanically unrelated errors.",
     "set": 4,
@@ -4825,7 +4825,7 @@
     "options": [
       "Replace Step Functions entirely with a single monolithic Lambda function containing all the orchestration logic in code, since Lambda has no per-state-transition charge at all.",
       "Increase the Standard Workflow's state machine's provisioned throughput to reduce the per-state-transition cost at high volume.",
-      "Migrate the state machine to a Step Functions Express Workflow, since its per-execution-plus-duration pricing model is far more cost-effective at high volume/short duration than Standard's per-state-transition pricing, and its at-least-once semantics are acceptable given the now-idempotent downstream writes.",
+      "Migrate to a Step Functions Express Workflow, priced per execution plus duration instead of per state transition, accepting at-least-once semantics given the idempotent writes.",
       "Switch the DynamoDB table's capacity mode from on-demand to provisioned to reduce the cost contribution from the conditional writes, leaving the Standard Workflow unchanged."
     ],
     "answer": 2,
@@ -4845,14 +4845,14 @@
     "difficulty": "hard",
     "question": "A data engineering team supports an AWS Glue Spark job that performs a large groupBy aggregation over a 600 GB dataset stored as Parquet in S3. The job has run reliably for a year with a consistent 35-minute runtime, but over the last three weeks runtime has crept up to nearly 2 hours despite no code changes, no configuration changes, and no announced changes to the Glue version. Reviewing Spark UI metrics, the engineer notices the input data volume has grown only modestly (about 8%) but the number of input files has grown roughly 40x, from about 2,000 files a year ago to over 80,000 files today, because an upstream team recently switched from writing one large batch file per hour to streaming continuous small appends throughout the day into the same S3 prefix. What is the most direct explanation for the runtime regression, and what's the fix?",
     "options": [
-      "The groupBy aggregation itself has become inherently slower because Parquet files degrade in read performance as more files accumulate in the same S3 prefix, regardless of file size, and the fix is to migrate the dataset to Apache Iceberg format.",
-      "Glue's job bookmark is now tracking 40x more file-level state than a year ago, and the bookmark lookup overhead itself is responsible for the runtime regression; the fix is to disable job bookmarks for this job.",
-      "Spark's default shuffle partition count of 200 is now insufficient for the larger number of input files, so the fix is to increase spark.sql.shuffle.partitions to match the new file count.",
-      "The dramatic increase in file count relative to only modest data volume growth is the classic small-file problem — excessive per-file listing, open, and task-scheduling overhead dominates the runtime — and the fix is to compact the small files into fewer, appropriately sized files (128 MB–1 GB) before or as part of the aggregation job."
+      "Parquet read performance degrades purely from file count in the same S3 prefix regardless of file size, and the fix is to migrate the dataset to Apache Iceberg format.",
+      "Glue's job bookmark is now tracking 40x more file-level state than a year ago, and that lookup overhead is responsible for the regression; the fix is to disable job bookmarks.",
+      "Spark's default shuffle partition count of 200 is now insufficient for the larger number of input files, so the fix is to increase spark.sql.shuffle.partitions.",
+      "The 40x file-count increase against only 8% data growth is the classic small-file problem, driving per-file listing/open/scheduling overhead; the fix is to compact into fewer 128 MB–1 GB files."
     ],
     "answer": 3,
     "explanations": [
-      "A – Incorrect. Parquet read performance doesn't inherently degrade purely from file count in the prefix in the way described here as an intrinsic property of the format — the actual mechanism is the small-file overhead already correctly identified in option B, not some innate Parquet limitation; migrating formats without addressing file count wouldn't fix the underlying issue.",
+      "A – Incorrect. Parquet read performance doesn't inherently degrade purely from file count in the prefix in the way described here as an intrinsic property of the format — the actual mechanism is the small-file overhead already correctly identified in option D, not some innate Parquet limitation; migrating formats without addressing file count wouldn't fix the underlying issue.",
       "B – Incorrect. Job bookmarks track which files/objects have already been processed to avoid reprocessing on rerun, but bookmark lookup overhead scaling with file count is not a documented or plausible primary driver of a multi-hour runtime regression compared to the well-established small-file I/O overhead pattern.",
       "C – Incorrect. Shuffle partition count affects how the groupBy's shuffle stage is parallelized after data is read, but it doesn't explain the described symptom, which is driven by the input-file explosion (listing/opening 80,000 small files), not by the shuffle stage's partitioning of aggregation keys.",
       "D – Correct. A 40x increase in file count against only 8% data growth is the textbook small-file signature — each file carries fixed per-file overhead (S3 listing, task scheduling, file-open latency) largely independent of its size, so tens of thousands of tiny files dominate runtime even though total data volume barely changed. Compacting into fewer, larger files (in the 128 MB–1 GB range) directly removes this overhead."
@@ -4867,10 +4867,10 @@
     "difficulty": "hard",
     "question": "A company's data platform team receives a support ticket: an analyst's Athena query against a 3-year Parquet dataset, partitioned by year, month, and day, and further sub-partitioned by a high-cardinality customer_region_code field (with roughly 45,000 distinct values), is timing out after 30 minutes. The same style of query against last year's equivalent dataset, before customer_region_code sub-partitioning was introduced, ran in under 20 seconds. The team's metadata catalog also shows Glue crawler runs against this table now regularly take over an hour and sometimes fail to complete before the next scheduled run starts. What is the most likely root cause and appropriate fix?",
     "options": [
-      "The Glue Data Catalog database housing this table needs to be migrated to a dedicated Lake Formation-governed catalog, since standard Glue Data Catalog databases have stricter query timeout limits than governed ones.",
+      "The Glue Data Catalog database housing this table needs migration to a dedicated Lake Formation-governed catalog, since standard databases have stricter query timeout limits than governed ones.",
       "The Parquet files themselves have become corrupted over the 3-year accumulation period; the fix is to re-export the entire dataset from source.",
-      "The table has excessive partition cardinality from sub-partitioning on a high-cardinality field (tens of thousands of distinct customer_region_code values combined with date), which creates an enormous number of small partitions that overwhelm both Athena's query planning and the Glue crawler's partition discovery; the fix is to remove the customer_region_code partitioning level and instead treat it as a regular (non-partition) column, relying on Parquet's columnar predicate pushdown for filtering on it.",
-      "Athena's underlying Trino engine has a hard partition limit of exactly 10,000 that this table has now exceeded, causing an automatic query failure; the fix is to upgrade to Athena Provisioned Capacity to bypass the limit."
+      "High cardinality from sub-partitioning on customer_region_code (45,000 values) overwhelms Athena's planning and the crawler's discovery; drop that partition level and filter on it as a regular column.",
+      "Athena's underlying Trino engine has a hard partition limit of exactly 10,000 that this table has now exceeded; the fix is to upgrade to Athena Provisioned Capacity to bypass the limit."
     ],
     "answer": 2,
     "explanations": [
@@ -4889,10 +4889,10 @@
     "difficulty": "hard",
     "question": "A team's daily AWS Glue ETL job reads from an on-premises Oracle database over a JDBC connection through AWS Glue's VPC networking, transforms the data, and writes to S3. The job has run successfully every day for months, but starting this week it intermittently fails with a connection timeout error roughly twice a week, always at a different time of day, with no pattern the team can initially identify. Reviewing VPC Flow Logs for the Glue job's elastic network interfaces during a recent failure window shows traffic to the on-premises Oracle host's IP being ACCEPTed at the network layer, and the on-premises database team confirms Oracle itself shows no incoming connection attempt at all during the failure window. What is the most likely explanation for connections that appear allowed by network ACLs and security groups yet never actually reach the Oracle server?",
     "options": [
-      "The Oracle database's listener process is crashing intermittently due to unrelated on-premises resource contention, which the on-premises team's confirmation of 'no incoming connection attempt' actually would not be able to detect.",
+      "The Oracle listener process crashes intermittently due to unrelated on-premises resource contention, and the on-premises team's 'no incoming attempt' claim actually wouldn't detect this.",
       "AWS Glue jobs have an undocumented hard limit of two JDBC connection attempts per week per data source, after which subsequent attempts are automatically throttled by the Glue service itself.",
       "The Glue job's IAM role has intermittently insufficient permissions to establish JDBC connections, and IAM throttling occasionally blocks the connection attempt before it leaves the VPC.",
-      "The on-premises network path (such as a Direct Connect or Site-to-Site VPN connection, or an intermediate firewall/route) is intermittently failing or being rate-limited somewhere between the VPC and the on-premises Oracle host, meaning the connection is accepted by the local security group/NACL (which only govern the AWS side of the path) but never successfully completes the full route to the on-premises destination."
+      "The hybrid link (Direct Connect, VPN, or an intermediate firewall) is intermittently failing between the VPC and the on-prem host, so the security group/NACL shows accepted traffic that never reaches Oracle."
     ],
     "answer": 3,
     "explanations": [
@@ -4911,9 +4911,9 @@
     "difficulty": "hard",
     "question": "A subscription box company's Athena-based reporting layer queries a 40 TB S3 data lake of order history, partitioned by order_year and order_month, stored as Snappy-compressed Parquet. The finance team runs the same monthly revenue-reconciliation query template each month, filtering to a single month's partition and scanning roughly 1.1 TB. Finance has just requested the ability to also run identical reconciliation logic against arbitrary custom date ranges spanning multiple months at a time, sometimes crossing year boundaries, without the platform team writing a new query for each request, while keeping the per-query cost predictable and avoiding accidental full-table scans if someone forgets to specify a date filter entirely. What combination of Athena features addresses both the flexible date-range requirement and the accidental-full-scan risk?",
     "options": [
-      "Create a parameterized Athena view over the partitioned table and grant finance direct console access, relying on individual analysts to remember to always include a WHERE clause filtering order_year and order_month.",
+      "Create a parameterized Athena view over the partitioned table and grant finance direct console access, relying on analysts to remember a WHERE clause filtering order_year and order_month.",
       "Convert the table from Athena-managed partitioning to Redshift Spectrum external tables, since Spectrum has no per-query cost at all regardless of scan volume.",
-      "Use Athena prepared statements (or parameterized queries) so finance can supply arbitrary start/end date parameters against the existing year/month partitions for flexible range queries, and configure the Athena workgroup with a per-query data usage control (bytes-scanned limit) to automatically cancel any query — including one missing a date filter — that would scan beyond an approved threshold.",
+      "Use Athena prepared statements for arbitrary date-range parameters, and set the workgroup's bytes-scanned control to auto-cancel any query, even an unfiltered one, past an approved threshold.",
       "Disable Athena entirely for finance and require all reconciliation queries go through a Lambda function that hardcodes the date range server-side, preventing analysts from ever specifying their own range."
     ],
     "answer": 2,
@@ -4936,7 +4936,7 @@
       "Glue's Filtered Bytes metric, since it shows how much data was excluded by the job's transformation logic during each run.",
       "NumberOfObjects for the destination S3 bucket, since a static object count over the 40-minute window directly proves the Glue job has stopped reading from Kinesis entirely.",
       "PutRecords.Success for the Kinesis stream, since it reflects whether producer writes into the stream are succeeding.",
-      "GetRecords.IteratorAgeMilliseconds for the Kinesis stream, since a climbing value directly indicates the consumer is reading progressively older data and falling behind, while a flat or low value would point away from a read-side lag issue and toward the write path instead."
+      "GetRecords.IteratorAgeMilliseconds for the Kinesis stream: a climbing value shows the consumer reading progressively older data and falling behind, while a flat/low value points away from read lag."
     ],
     "answer": 3,
     "explanations": [
@@ -4955,10 +4955,10 @@
     "difficulty": "hard",
     "question": "A healthcare data platform spans 3 AWS accounts in an AWS Organization: a central governed-lake account holding the Glue Data Catalog and raw/curated S3 data registered in Lake Formation, a clinical-research account whose data scientists need read access to de-identified patient tables, and a billing-analytics account whose analysts need read access only to claims tables. The security team wants to grant cross-account access to specific databases such that clinical-research can only ever see de-identified patient tables (never the raw PII tables in the same database) and billing-analytics can only ever see claims tables, using a single centralized permission model rather than per-account IAM policies duplicated three times, and wants any future change in row/column-level restrictions applied once and automatically respected by every consuming account's query engine (Athena in both accounts). Which architecture satisfies this?",
     "options": [
-      "Use Lake Formation cross-account grants from the central account to share exactly the de-identified patient tables with clinical-research and exactly the claims tables with billing-analytics, using Lake Formation's resource links and permissions, so table/column/row-level rules defined once in the central account are enforced consistently by Athena in every consuming account.",
-      "Create identical copies of the de-identified patient tables and claims tables in each consuming account's own S3 bucket and Glue Data Catalog via a scheduled Glue ETL job, so each account has fully independent local data with no cross-account dependency.",
-      "Grant each consuming account's IAM roles direct s3:GetObject permissions on the entire central S3 bucket, and rely on each account's own Athena workgroup configuration to filter which prefixes analysts are allowed to query.",
-      "Set up VPC peering between all 3 accounts and restrict access to the central data lake based solely on which VPC the query originates from, without configuring any Lake Formation permissions."
+      "Use Lake Formation cross-account grants from the central account to share only the de-identified tables with clinical-research and only the claims tables with billing-analytics.",
+      "Create identical copies of the de-identified patient tables and claims tables in each consuming account's own S3 bucket and Glue Data Catalog via a scheduled Glue ETL job.",
+      "Grant each consuming account's IAM roles direct s3:GetObject permissions on the entire central S3 bucket, relying on each account's own Athena workgroup configuration to filter accessible prefixes.",
+      "Set up VPC peering between all 3 accounts and restrict access to the central data lake based solely on which VPC the query originates from."
     ],
     "answer": 0,
     "explanations": [
@@ -4977,16 +4977,16 @@
     "difficulty": "hard",
     "question": "A multinational retailer's central data platform account holds a customer_transactions table in S3, encrypted with a customer-managed KMS key (arn:aws:kms:us-east-1:111111111111:key/central-key) owned by the platform account (111111111111). A newly onboarded regional analytics account (222222222222) needs read access for its Athena users to query this table, and Lake Formation has already been used to grant that account's IAM role SELECT permission on the table via a cross-account grant. After setting this up, users in the regional account can see the table listed and can successfully run Athena queries that return column names and structure, but every query fails at execution time with an access denied error referencing the KMS key when actually reading the underlying encrypted S3 objects. What is missing?",
     "options": [
-      "Lake Formation cross-account grants only support unencrypted S3 data; the table must be re-encrypted using SSE-S3 instead of a customer-managed KMS key before cross-account Lake Formation sharing will work at all.",
-      "The KMS key policy for arn:aws:kms:us-east-1:111111111111:key/central-key must be updated to explicitly grant the regional account's Athena/Glue execution role 'kms:Decrypt' permission, since Lake Formation and S3-level grants alone do not extend to decrypting KMS-encrypted objects owned by a different account's key.",
-      "The regional account needs its own separate customer-managed KMS key created and associated with the Lake Formation grant, since KMS keys cannot be shared across AWS accounts under any circumstances.",
-      "The regional account's Athena workgroup needs 's3:GetObject' added to its IAM policy, since Lake Formation grants alone never include the underlying S3 object read permission."
+      "Lake Formation cross-account grants only support unencrypted S3 data; the table must be re-encrypted using SSE-S3 instead of a customer-managed KMS key before sharing will work.",
+      "The central account's KMS key policy must explicitly grant the regional account's Athena/Glue role kms:Decrypt, since Lake Formation and S3 grants alone don't cover decrypting another account's key.",
+      "The regional account needs its own separate customer-managed KMS key associated with the Lake Formation grant, since a KMS key's key policy cannot list principals from another AWS account.",
+      "The regional account's Athena workgroup needs s3:GetObject added to its IAM policy, since Lake Formation's service-linked access covers table metadata but not the underlying object bytes."
     ],
     "answer": 1,
     "explanations": [
       "A – Incorrect. Lake Formation cross-account sharing works with KMS-encrypted data; there's no such restriction — this is a fabricated limitation, and re-encrypting with SSE-S3 (which uses AWS-managed keys with no customer control over cross-account key policies in this scenario's context) isn't the correct or expected fix and would need to be revisited if fine-grained key control were later required.",
       "B – Correct. This is the classic cross-account KMS gotcha: even with correct Lake Formation permissions and S3-level access granted, a customer-managed KMS key's key policy is a separate, independent layer of access control — the key owner (the central platform account) must explicitly add the regional account's relevant principal (its Athena/Glue execution role) to the KMS key policy with kms:Decrypt permission, or reads of the encrypted objects will fail even though every other layer of access looks correctly configured.",
-      "C – Incorrect. KMS keys can absolutely be shared across accounts by granting the other account's principals permission in the key's key policy — that is the standard supported mechanism (as described in option B); creating a duplicate key in the regional account would not decrypt data encrypted under the central account's key, since decryption requires the actual key that encrypted the data.",
+      "C – Incorrect. KMS key policies can absolutely list principals from another AWS account, granting them permission to use the key — that is the standard supported cross-account mechanism (as described in option B); creating a duplicate key in the regional account would not decrypt data encrypted under the central account's key, since decryption requires the actual key that encrypted the data.",
       "D – Incorrect. Lake Formation's fine-grained permissions model handles the underlying S3 data access on the consuming principal's behalf via its own service-linked mechanisms once granted — the failure described (specifically referencing the KMS key at execution time, after successfully listing/describing the table) points to the well-documented KMS cross-account decrypt gap, not a missing raw S3 IAM action."
     ],
     "topic": "Cross-account access to KMS-encrypted S3 data requires two independent, additive layers of permission: resource-level access (an S3 bucket policy or, here, a Lake Formation grant) AND an explicit grant on the KMS key policy itself allowing the other account's principal to use that specific key for kms:Decrypt — missing either layer causes access to fail, often confusingly late (only at actual object-read time, after metadata/listing operations already succeeded). This is one of the most heavily tested hard-tier patterns on the exam specifically because every other layer (Lake Formation, IAM, S3) can look fully correct while the KMS key policy is the actual, less-obvious gap.",
@@ -5002,7 +5002,7 @@
       "Enable CloudWatch Logs Insights on the Athena service logs, since Insights natively retains 2 years of query history and supports SQL-style querying without any CloudTrail configuration changes.",
       "Rely on Lake Formation's own built-in audit dashboard, which independently retains 2 years of query-level history with SQL text by default with no additional configuration required.",
       "Enable AWS Config rules on the Athena workgroup to track every query executed as a configuration item, then query AWS Config's configuration history for the March 3rd date range.",
-      "Configure a CloudTrail trail (or CloudTrail Lake event data store) to capture Athena/Lake Formation data events in addition to management events, delivering them to S3 or a CloudTrail Lake event data store with a 2-year retention configuration, and use CloudTrail Lake's SQL query capability to investigate March 3rd's activity and support ongoing ad-hoc audit queries."
+      "Configure a CloudTrail trail (or CloudTrail Lake) to capture Athena/Lake Formation data events plus management events with 2-year retention, then use CloudTrail Lake's SQL query capability."
     ],
     "answer": 3,
     "explanations": [
@@ -5021,10 +5021,10 @@
     "difficulty": "hard",
     "question": "A pharmaceutical company's data science team wants to build a Retrieval-Augmented Generation application using an Amazon Bedrock knowledge base backed by a vector index over internal clinical trial documents stored in S3. The documents span two research divisions in two separate AWS accounts under the same AWS Organization: Division A's account owns oncology trial documents, and Division B's account owns cardiology trial documents. Corporate policy strictly prohibits any cross-division access to raw source documents (an oncology researcher must never be able to read a cardiology document or vice versa), but leadership wants a single unified Bedrock knowledge base and chat interface that both divisions' researchers can query, where each researcher's questions are answered only using their own division's documents, never the other division's. Which architecture satisfies the strict data-isolation requirement while still supporting a single interface?",
     "options": [
-      "Build one shared Bedrock knowledge base and vector index, and rely solely on IAM resource policies on the knowledge base itself to filter which specific document chunks are returned to each researcher at query time.",
-      "Build two separate Bedrock knowledge bases, one per division, each ingesting only that division's documents and each scoped to that division's own account/IAM boundary, and front both with a single orchestration layer (such as an application layer or agent) that routes each researcher's query to only the knowledge base corresponding to their own division based on their authenticated identity.",
-      "Merge both divisions' S3 buckets into a single central account's bucket with all documents combined, then use S3 Object Lock in governance mode to prevent cross-division reads after ingestion.",
-      "Build one Bedrock knowledge base with a single shared vector index ingesting both divisions' documents into one account, and rely on prompt engineering instructions telling the model to only reference the querying researcher's division when generating a response."
+      "Build one shared Bedrock knowledge base and vector index, and rely solely on IAM resource policies on the knowledge base to filter which document chunks are returned per researcher at query time.",
+      "Build two separate knowledge bases, one per division, each scoped to that division's own account/IAM boundary, fronted by one orchestration layer routing queries by identity.",
+      "Merge both divisions' S3 buckets into one central account's bucket, then use S3 Object Lock in governance mode to prevent cross-division reads after ingestion.",
+      "Build one Bedrock knowledge base with a single shared vector index ingesting both divisions' documents, relying on prompt engineering to tell the model to only reference the querying researcher's division."
     ],
     "answer": 1,
     "explanations": [
@@ -5043,10 +5043,10 @@
     "difficulty": "hard",
     "question": "A retail analytics company runs Amazon SageMaker Unified Studio for its combined data engineering and data science organization. The governance team has set up a domain with several domain units mapping to business functions: 'Marketing Analytics,' 'Supply Chain,' and 'Finance.' Within Marketing Analytics, two active projects exist: 'Campaign Attribution' and 'Customer Segmentation.' A data scientist named Priya is a member of the Campaign Attribution project only. She reports that she can browse and discover a curated customer_ltv dataset that is registered as a governed asset under the Customer Segmentation project, including seeing its name, description, and schema in the catalog, but she is unable to actually query or export its underlying data. Is this the expected behavior, and why?",
     "options": [
-      "No — this is a misconfiguration. Domain units are purely organizational folders with no access-control function; Priya's inability to query the data must be caused by an unrelated IAM policy gap that should be corrected so she has full access matching her ability to discover the asset.",
-      "Yes — this is expected. Asset discoverability (catalog visibility: name, description, schema) and actual data access (query/export permission) are governed separately in SageMaker Catalog; being able to find and understand what an asset is does not by itself grant permission to use its underlying data, which still requires project membership or an explicit grant for that specific asset.",
-      "Yes, but only because Priya's IAM role happens to lack s3:GetObject on the underlying bucket; if that single permission were added, catalog discoverability and data access would then be functionally identical for all governed assets going forward.",
-      "No — this is a misconfiguration. Once a governed asset is published to any project within the same domain unit, all members of every project within that domain unit automatically receive full query/export access; Priya's project membership should have been sufficient."
+      "No — this is a misconfiguration. Domain units are purely organizational folders with no access-control function; Priya's inability to query the data must be an unrelated IAM gap that should be fixed so she gets full access.",
+      "Yes — expected. Discoverability (name/schema) and data access (query/export) are governed separately; finding an asset doesn't grant permission to use its data.",
+      "Yes, but only because Priya's IAM role lacks s3:GetObject on the underlying bucket; adding that one permission would make discoverability and access functionally identical for all governed assets going forward.",
+      "No — this is a misconfiguration. Once a governed asset is published to any project within a domain unit, all members of every project in that domain unit automatically receive full query/export access."
     ],
     "answer": 1,
     "explanations": [
@@ -5065,10 +5065,10 @@
     "difficulty": "hard",
     "question": "A logistics company's security team is investigating a potential data exfiltration incident: a large volume of objects were downloaded from a sensitive S3 bucket over a weekend using valid IAM credentials belonging to a departed contractor whose access should have been revoked the previous Friday. The team needs to determine, across the prior 18 months, every single S3 GetObject call made by that contractor's IAM user, including timestamps and source IP addresses, to build a complete picture for a potential legal proceeding. The company's S3 buckets currently have only the default account-level CloudTrail trail enabled, which the security team already suspects will be insufficient. What must have already been in place, and what should be configured going forward to prevent this gap for future investigations?",
     "options": [
-      "The default CloudTrail trail only captures management events, not S3 object-level data events like GetObject, by default; a trail with S3 data event logging explicitly enabled (or a CloudTrail Lake event data store configured for data events with sufficiently long retention) would have been required in advance to capture GetObject-level activity, and this must be configured going forward — historical GetObject calls made before that configuration existed cannot be retroactively recovered.",
-      "Nothing additional was needed; the default CloudTrail trail captures all S3 GetObject calls (data events) automatically for all buckets going back at least 18 months, so the historical data should already be fully available in Event History.",
-      "S3 Server Access Logging alone would have automatically captured everything CloudTrail data events would have, making CloudTrail data event configuration unnecessary going forward as long as Server Access Logging is enabled now.",
-      "AWS Config should be configured retroactively to reconstruct the full 18-month history of GetObject calls, since Config maintains a complete historical log of all API-level object access regardless of when it was enabled."
+      "The default trail captures only management events, not data events like GetObject; data event logging had to be enabled in advance, and past calls can't be recovered now.",
+      "Nothing additional was needed; the default CloudTrail trail captures all S3 GetObject calls automatically for all buckets going back at least 18 months, so the historical data should already be fully available.",
+      "S3 Server Access Logging alone would have automatically captured everything CloudTrail data events would have, making CloudTrail data event configuration unnecessary going forward.",
+      "AWS Config should be configured now and pointed at its configuration-item history to reconstruct the 18-month record of GetObject calls, since Config change history covers object-level S3 access."
     ],
     "answer": 0,
     "explanations": [
@@ -5087,10 +5087,10 @@
     "difficulty": "hard",
     "question": "A biotech company operating under GDPR must ensure that all data belonging to EU research subjects is stored and processed exclusively within EU AWS Regions, and that this restriction is enforced organization-wide as a hard technical control rather than relying on individual engineering teams to remember Region selection correctly. The company has 40 AWS accounts under a single AWS Organization, all currently able to create resources in any AWS Region. The compliance team also requires that even an engineer with full administrative IAM permissions within an individual account must be structurally prevented from spinning up a non-compliant resource (such as an RDS instance in us-east-1 containing EU subject data) — a written policy or code-review process alone is explicitly deemed insufficient. What should the company implement?",
     "options": [
-      "Apply a Service Control Policy (SCP) at the AWS Organizations level that denies resource-creation API calls in all Regions except the approved EU Regions, attached to the relevant organizational unit(s) so it applies account-wide regardless of any individual IAM principal's own permissions, including administrators.",
-      "Publish an internal engineering wiki page and a mandatory annual training module documenting which AWS Regions are approved for EU subject data, and require engineers to self-attest compliance during code review.",
+      "Apply a Service Control Policy (SCP) at the Organizations level that denies resource-creation API calls outside the approved EU Regions, attached to the relevant OUs so it overrides even an individual IAM administrator's own permissions.",
+      "Publish an internal engineering wiki page and a mandatory annual training module documenting approved Regions, and require engineers to self-attest compliance during code review.",
       "Configure AWS Config rules in each account to flag non-EU-Region resources after they are created, and rely on the compliance team manually reviewing and remediating flagged findings weekly.",
-      "Grant only a single centralized 'Region Approver' IAM role permission to launch resources in any Region, and have all 40 accounts' engineers request temporary elevated access through this role for every deployment."
+      "Grant only a single centralized Region Approver IAM role permission to launch resources in any Region, and have all 40 accounts' engineers request temporary elevated access through that role for every deployment."
     ],
     "answer": 0,
     "explanations": [
@@ -5109,9 +5109,9 @@
     "difficulty": "hard",
     "question": "A company's compliance team discovers, via an Amazon Macie scan of its S3 data lake, that a bucket believed to contain only anonymized marketing analytics data actually contains several thousand objects with unredacted customer Social Security numbers and full names, apparently introduced by an upstream data source that stopped anonymizing records six months ago without anyone noticing. The bucket is registered in Lake Formation and queried by both an internal analytics team (via Athena) and an external marketing agency (via a cross-account Lake Formation grant). The compliance team needs to immediately stop the external agency's continued exposure to this PII while the internal team investigates and remediates the root cause, without disrupting the internal analytics team's ongoing legitimate access to the (mostly clean) rest of the dataset. What is the most appropriate immediate action?",
     "options": [
-      "Revoke all IAM permissions for both the internal analytics team and the external marketing agency simultaneously, fully shutting down all access to the bucket including for the internal team's unrelated legitimate work, until the entire root cause is resolved.",
+      "Revoke all IAM permissions for both the internal analytics team and the external marketing agency simultaneously, fully shutting down all access to the bucket, including the internal team's unrelated legitimate work, until the root cause is resolved.",
       "Delete the entire S3 bucket immediately to eliminate all exposure risk, then rebuild the dataset from scratch once the anonymization pipeline is fixed.",
-      "Revoke or narrow the cross-account Lake Formation grant to the external marketing agency (e.g., removing access to the affected table or restricting it via a column/row filter excluding the compromised records), while leaving the internal analytics team's Lake Formation permissions unchanged pending root-cause remediation.",
+      "Revoke or narrow the cross-account Lake Formation grant to the marketing agency (e.g., removing access to the affected table, or restricting via a row/column filter), leaving the internal team's Lake Formation permissions unchanged pending remediation.",
       "Do nothing at the access-control layer since Macie only produces findings and has no integration with actual data access enforcement; wait for the upstream source to fix anonymization before taking any action."
     ],
     "answer": 2,
@@ -5131,7 +5131,7 @@
     "difficulty": "hard",
     "question": "A company's platform team allows individual data engineers across several teams to self-service create their own IAM roles for the Glue jobs they build, since centralizing every role creation through the platform team was creating a bottleneck. However, the security team must guarantee that no engineer can ever create (or modify an existing role into) a role with iam:PassRole combined with wildcard resource access, or with permissions broader than what's needed for standard Glue/S3/Redshift operations, since either combination could be used to escalate privileges. The security team wants this enforced automatically at the moment of role creation or modification, not detected after the fact via a periodic scan. What should they implement?",
     "options": [
-      "Attach a permissions boundary to every IAM role that engineers are allowed to self-service create, defining the maximum permissions any such role can ever have (excluding the prohibited iam:PassRole-with-wildcard combination and other over-broad grants), so that even if an engineer's own IAM permissions would otherwise let them attach broader policies, the permissions boundary caps what the resulting role can actually do at creation/modification time.",
+      "Attach a permissions boundary to every self-service-created role, capping its maximum permissions regardless of the engineer's own permissions, enforced at creation/modification time.",
       "Rely on IAM Access Analyzer's policy validation warnings alone, since Access Analyzer automatically blocks any IAM API call that would create an over-permissioned role.",
       "Require engineers to submit a support ticket for every individual role creation, reintroducing the exact centralized bottleneck the platform team was trying to eliminate.",
       "Configure an AWS Config rule that evaluates all IAM roles daily and flags any role matching the prohibited permission patterns for manual remediation."
@@ -5153,9 +5153,9 @@
     "difficulty": "hard",
     "question": "A global manufacturing company runs Amazon Redshift as its central data warehouse, storing production data from factories in Germany, Japan, and the United States all in shared fact tables. German factory data is subject to GDPR and must never be visible to Redshift users outside the EU data governance team, and separately, factory-floor engineers in each country should only see operational data for their own country's factories regardless of role. The company wants both restrictions enforced with a single mechanism that scales as new countries and factories are added over time, without needing to write and maintain a separate Redshift view or GRANT statement combination for every new country/role pairing that gets introduced. Which authorization approach best fits?",
     "options": [
-      "A single shared Redshift role granted to all users with SELECT on all fact tables, relying entirely on application-layer filtering in the BI tool to hide rows from users based on their country.",
-      "Role-based access control (RBAC), creating a dedicated Redshift database role for every country and assigning users to the role matching their country, with views manually filtered per role.",
-      "Attribute-based access control (ABAC), where access decisions are computed at query time from attributes such as the querying user's country/team assignment compared against the row's country/classification attributes, rather than maintaining a static, ever-growing list of per-country roles and views.",
+      "A single shared Redshift role granted to all users with SELECT on all fact tables, relying entirely on BI-tool-layer filtering to hide rows from users based on their country.",
+      "RBAC: a dedicated Redshift database role for every country, users assigned to the role matching their country, with views manually filtered per role.",
+      "ABAC, where access decisions are computed at query time from attributes like the user's country/team compared against the row's country/classification attributes, instead of a growing list of per-country roles and views.",
       "Tag-based access control applied only at the S3 storage layer beneath Redshift, since Redshift itself has no concept of row-level filtering and all filtering must happen before data reaches Redshift."
     ],
     "answer": 2,
@@ -5175,10 +5175,10 @@
     "difficulty": "hard",
     "question": "A company's data lake stores customer support call transcripts in S3, which are indexed into an Amazon Kendra index for enterprise search used by customer support agents, account managers, and the legal team. Some transcripts contain privileged attorney-client communications that only the legal team should be able to find and read via search; all other transcripts should be searchable by all three groups. The company already uses Lake Formation to govern structured tables elsewhere in its data lake, but Kendra indexes unstructured documents directly from S3, not through Lake Formation-governed tables. What is the correct way to ensure only the legal team's search results include the privileged transcripts, while all groups still see the non-privileged transcripts in a single shared Kendra index?",
     "options": [
-      "Configure Kendra document-level access control using each transcript's associated access control list (ACL) or user/group attribute metadata, so at query time Kendra filters search results per user based on the requesting user's identity/group membership against each document's configured permissions.",
+      "Configure Kendra document-level access control using each transcript's ACL or user/group attribute metadata, so at query time Kendra filters results per user against each document's configured permissions.",
       "Register the S3 bucket containing the transcripts as a Lake Formation-governed resource, since Lake Formation permissions automatically apply to any Kendra index built on top of an S3 location once registered.",
-      "Rely on IAM policies attached to each user restricting which S3 prefixes they can read directly, since Kendra automatically inherits and enforces the querying user's underlying S3 IAM permissions for every document in the index.",
-      "Create two entirely separate Kendra indexes, one containing only privileged transcripts accessible solely to legal, and mirror every non-privileged transcript into both indexes so all three groups have a consistent single-index search experience."
+      "Rely on IAM policies attached to each user restricting which S3 prefixes they can read directly, since Kendra automatically inherits and enforces the querying user's underlying S3 IAM permissions for every document.",
+      "Create two entirely separate Kendra indexes, one containing only privileged transcripts accessible solely to legal, and mirror every non-privileged transcript into both indexes."
     ],
     "answer": 0,
     "explanations": [
@@ -5198,7 +5198,7 @@
     "question": "A pharmaceutical research company must retain detailed audit logs of all data access to its clinical trial data lake for 7 years to satisfy FDA regulatory requirements, including both AWS management-plane events (who changed bucket policies, who modified Lake Formation permissions) and data-plane events (every individual S3 GetObject call against trial data). Separately, the security team wants to be alerted in near-real-time whenever a Lake Formation permission is granted or revoked, since unauthorized permission changes are considered a high-severity security event requiring immediate investigation, not something that should wait for a periodic audit review. Which combination of configurations satisfies both the long-term audit requirement and the near-real-time alerting requirement?",
     "options": [
       "Enable S3 Server Access Logging with a 7-year lifecycle policy as the sole audit mechanism, since it captures both management-plane and data-plane events with equivalent detail to CloudTrail.",
-      "Configure a CloudTrail trail capturing both management events (including Lake Formation permission API calls) and S3 data events, delivered to S3 with a lifecycle policy retaining logs for 7 years (or ingested into a CloudTrail Lake event data store with 7-year retention) for the audit requirement, and separately configure an EventBridge rule matching Lake Formation GrantPermissions/RevokePermissions API call events (sourced from CloudTrail) that triggers an SNS notification to the security team in near-real-time.",
+      "Configure a CloudTrail trail capturing management and S3 data events with 7-year retention, plus an EventBridge rule on Lake Formation Grant/RevokePermissions events triggering an SNS alert.",
       "Rely solely on AWS Config's configuration history, which natively retains 7 years of history by default and can be configured to send SNS notifications the moment a Lake Formation permission changes.",
       "Configure a single CloudTrail trail capturing both management and data events, delivering logs only to CloudWatch Logs with a 7-year retention policy, and manually review the logs weekly for any Lake Formation permission changes."
     ],
@@ -5219,8 +5219,8 @@
     "difficulty": "hard",
     "question": "A company operates a shared Redshift data warehouse used by 5 business units, each of which must be able to query only their own unit's data, with no unit able to see another's rows even within otherwise-shared fact tables, and this restriction must hold even for users connecting directly via SQL client tools with valid database credentials, not just through a BI layer. Separately, the security team wants any new business unit onboarded in the future to require only a configuration change (not new views, new tables, or new GRANT statements written from scratch) to have the same automatic per-unit row isolation applied. The company has already tagged every row with a business_unit_id column. What Redshift feature should they use?",
     "options": [
-      "Create a separate materialized view per business unit, each pre-filtered to that unit's business_unit_id, and grant each unit's users SELECT only on their corresponding materialized view, refreshing views on a schedule.",
-      "Implement Redshift row-level security (RLS) policies that reference the querying user's session context (such as their assigned business_unit_id, set via a database role or session attribute) to automatically filter rows at query time against the business_unit_id column, applied consistently regardless of how the user connects.",
+      "Create a separate materialized view per business unit, each pre-filtered to that unit's business_unit_id, and grant each unit's users SELECT only on their view, refreshed on a schedule.",
+      "Redshift row-level security (RLS) filters rows via session context (e.g., business_unit_id) at query time, at the engine level, regardless of connection method.",
       "Use Redshift Spectrum external tables with a separate S3 prefix per business unit, migrating away from native Redshift tables entirely to gain per-unit isolation.",
       "Split the shared fact tables into 5 entirely separate physical tables, one per business unit, and grant each business unit's users access only to their own table."
     ],
@@ -5243,8 +5243,8 @@
     "options": [
       "Lake Formation resource links, which create a pointer from a consuming database to a table in another database, reducing the need for data duplication across databases.",
       "Redshift data sharing, which allows producer clusters to share live data with consumer clusters without duplicating it, avoiding the need for granular Lake Formation table grants entirely.",
-      "Lake Formation tag-based access control (LF-TBAC), which grants permissions based on matching LF-Tags assigned to both principals (or their associated attributes) and Data Catalog resources (databases/tables/columns), rather than requiring a discrete grant per individual resource.",
-      "Lake Formation's default 'IAMAllowedPrincipals' permission model, which grants broad access to any principal with a matching IAM policy, reducing the number of distinct grants needed."
+      "Lake Formation tag-based access control (LF-TBAC), granting permissions by matching LF-Tags on principals/attributes against tags on databases/tables/columns, instead of a discrete grant per resource.",
+      "Lake Formation's default IAMAllowedPrincipals permission model, which grants broad access to any principal with a matching IAM policy, reducing the number of distinct grants needed."
     ],
     "answer": 2,
     "explanations": [
@@ -5263,10 +5263,10 @@
     "difficulty": "hard",
     "question": "A company stores customer payment card data in an S3-based data lake, with tokenized card numbers used throughout most downstream analytics pipelines so analysts can join transactions by card without ever seeing real card numbers, but a small fraud-investigation team occasionally needs to recover the actual card number for a specific flagged transaction under documented, audited circumstances (e.g., confirmed fraud escalated to the card network). Separately, customer email addresses are used purely for matching/deduplication across three different upstream source systems that each format emails slightly differently, with no downstream process ever needing to display or recover the original email address itself. Which masking techniques are appropriate for the card numbers and the email addresses, respectively?",
     "options": [
-      "Hashing for both the card numbers and the email addresses, since hashing is the strongest one-way protection available and should be applied uniformly to all sensitive fields regardless of downstream use case.",
-      "Redaction for both the card numbers and the email addresses, since redaction provides the strongest guarantee that neither value can ever be exposed or reconstructed under any circumstances.",
-      "Redaction for the card numbers (since payment data is the most sensitive) and tokenization for the email addresses (since they're used for matching across systems).",
-      "Tokenization for the card numbers (since the fraud team occasionally needs the real value back under controlled, audited conditions via a secure lookup) and hashing for the email addresses (since they only need one-way matching/deduplication and the original value is never required back)."
+      "Hashing for both the card numbers and the email addresses, since hashing is the strongest one-way protection available and should be applied uniformly regardless of downstream use case.",
+      "Redaction for both the card numbers and the email addresses, since redaction guarantees neither value can ever be exposed or reconstructed.",
+      "Redaction for the card numbers, since payment data is the most sensitive, and tokenization for the email addresses, since they're used for matching across systems.",
+      "Tokenization for card numbers, since the fraud team occasionally needs the real value via secure lookup, and hashing for emails, since only one-way matching is needed."
     ],
     "answer": 3,
     "explanations": [
@@ -5285,17 +5285,17 @@
     "difficulty": "hard",
     "question": "An insurance company's data platform team is designing IAM for a new AWS Glue ETL pipeline that reads raw policyholder data from an S3 bucket in a shared services account, applies transformations, and writes curated output to a Redshift cluster in the analytics account. The security team's least-privilege review flags the initially proposed IAM policy, which grants the Glue job's execution role s3:* on the entire shared-services bucket (justified by the developer as 'the job might need additional S3 actions as requirements evolve') and redshift:* on the analytics account's cluster (justified as 'simpler to manage one broad statement instead of multiple narrow ones'). The developer argues that AWS-managed policies like AmazonS3FullAccess would be even simpler still. What should the security team require instead, and why?",
     "options": [
-      "Require a custom policy scoped to only the specific S3 actions the job actually needs (such as s3:GetObject and s3:ListBucket on the specific prefix it reads) and the specific Redshift actions needed for its write pattern (such as redshift-data:ExecuteStatement or the specific COPY-related permissions), on the specific resource ARNs involved — rejecting both the wildcard custom policy and the suggestion of an AWS-managed full-access policy, since both grant far more than the job's actual operational needs.",
+      "Require a custom policy scoped to the specific S3/Redshift actions the job needs on specific ARNs, rejecting both the wildcard policy and an AWS-managed full-access policy.",
       "Approve the S3 and Redshift wildcard actions as proposed, since IAM policies attached to a role (rather than embedded in application code) already satisfy least privilege regardless of how broad the granted actions are.",
-      "Approve the AWS-managed AmazonS3FullAccess policy suggestion instead of the custom wildcard policy, since AWS-managed policies are reviewed and maintained by AWS and are therefore inherently more secure than any custom policy a developer could write.",
-      "Require the developer to request policy exceptions be filed and re-approved every time the job's requirements change, rather than defining the policy scope now, since anticipating future needs upfront is not possible."
+      "Approve the AWS-managed AmazonS3FullAccess policy instead of the custom wildcard policy, since AWS-managed policies are reviewed and maintained by AWS and are therefore inherently more secure than any custom policy a developer could write.",
+      "Require the developer to file and re-approve policy exceptions every time the job's requirements change, rather than defining the policy scope now, since anticipating future needs upfront is not possible."
     ],
     "answer": 0,
     "explanations": [
       "A – Correct. Least privilege means specifying exact actions (not wildcards like s3:* or redshift:*) and exact resource ARNs (not the entire bucket/cluster) scoped to precisely what the job's actual read/write pattern requires — this is the standard, correct response whenever a proposed policy uses broad wildcards justified by convenience or hypothetical future needs; a custom, narrowly-scoped policy is the textbook expression of least privilege the exam treats as the default correct answer for security tradeoffs like this.",
       "B – Incorrect. Attaching a policy to a role (rather than embedding credentials in code) is a separate, also-important best practice, but it does not by itself satisfy least privilege — the actual permissions granted by that role's policy still matter, and wildcard actions on broad resources violate least privilege regardless of the delegation mechanism.",
       "C – Incorrect. AWS-managed policies are convenient and maintained by AWS, but are deliberately broad to cover many customers' common use cases — this makes them less secure for a specific narrow job, not more secure; the exam explicitly frames managed policies as typically granting more permissions than any single use case actually needs, which is the opposite of least privilege here.",
-      "D – Incorrect. While policies can and should evolve over time via proper change management, this option describes an operationally impractical, all-or-nothing extreme (a new approval cycle for every single requirement change) rather than the actual documented answer, which is simply scoping the policy narrowly to current known needs now and iterating through normal change control as requirements genuinely evolve — the correct answer is B's specific scoping guidance, not this process-only deflection."
+      "D – Incorrect. While policies can and should evolve over time via proper change management, this option describes an operationally impractical, all-or-nothing extreme (a new approval cycle for every single requirement change) rather than the actual documented answer, which is simply scoping the policy narrowly to current known needs now and iterating through normal change control as requirements genuinely evolve — the correct answer is A's specific scoping guidance, not this process-only deflection."
     ],
     "topic": "Least privilege, the exam's default correct answer whenever a security tradeoff scenario is presented, means specifying exact IAM actions (never wildcards like s3:* or service:*) and exact resource ARNs (never *) scoped to precisely what a role's actual operational needs are — and this applies with equal force to AWS-managed policies, which are explicitly broad-by-design to cover many customers' common use cases and therefore typically grant more than any single specific use case needs. The exam-pattern trigger is a developer justifying broad wildcard permissions with 'might need it later' or 'simpler to manage' — the correct response is always a custom, narrowly-scoped policy, rejecting both the wildcard custom policy and the suggestion to fall back on an even broader AWS-managed policy.",
     "set": 4,
@@ -5308,8 +5308,8 @@
     "question": "A company operates a central data lake account (Account H) that owns the Glue Data Catalog and raw S3 data governed by Lake Formation, and 8 business-unit accounts that each consume specific tables via Lake Formation cross-account grants. The security team wants a hub-and-spoke governance model where: (1) all cross-account permission grants must be reviewable and auditable from a single place, (2) if a business-unit account is ever fully offboarded, its access to everything can be revoked with a single action rather than needing to individually revoke dozens of scattered per-table grants, and (3) individual business-unit accounts should never be able to grant sub-access to a fourth account without Account H's explicit approval, even though Lake Formation technically supports grantable permissions that would otherwise allow this. What Lake Formation/organizational configuration achieves all three requirements?",
     "options": [
       "Rely on each business-unit account's own CloudTrail logs to reconstruct what access was granted to them, since Lake Formation itself has no centralized way to view all grants issued across accounts.",
-      "Grant each business-unit account's IAM administrator direct, unrestricted Lake Formation admin rights within Account H's catalog so they can self-manage their own team's access without needing Account H's involvement for routine changes.",
-      "Keep all cross-account Lake Formation grants issued centrally and exclusively from Account H (never delegating grantable/'WITH GRANT OPTION' permissions to consuming accounts), track every grant against the consuming business-unit account's principal (not sub-delegated to arbitrary downstream principals), and use Lake Formation's permission listing/administration tools in Account H as the single source of truth; to fully offboard a business-unit account, revoke that account's grants centrally from Account H.",
+      "Grant each business-unit account's IAM administrator direct, unrestricted Lake Formation admin rights within Account H's catalog so they can self-manage their own team's access.",
+      "Keep grants issued centrally from Account H (never delegating WITH GRANT OPTION), track each grant by consuming account, and use Account H's listing as the single source of truth.",
       "Have each business-unit account independently configure its own Lake Formation instance mirroring a copy of the relevant tables, eliminating the need for cross-account grants from Account H altogether."
     ],
     "answer": 2,
@@ -5351,10 +5351,10 @@
     "difficulty": "hard",
     "question": "A logistics company's data lake team has been asked by the CISO to implement a control ensuring that any Amazon S3 bucket in the AWS account that stores data classified as 'restricted' can never become publicly accessible, even temporarily, and that this must be enforced automatically and continuously rather than caught only during periodic manual security reviews. Separately, the CISO wants to know, after the fact, precisely which IAM principal changed a specific restricted bucket's policy to (attempt to) make it public last month, even though the attempt was ultimately blocked. The team already has S3 Block Public Access enabled at the account level. Which two additional/complementary controls, mapped correctly to which requirement each one satisfies, should the team implement?",
     "options": [
-      "Use AWS Config with a managed rule (such as s3-bucket-public-read-prohibited) evaluating continuously and configured to auto-remediate non-compliant buckets — this satisfies the 'never become public, enforced automatically' requirement; and query AWS CloudTrail for PutBucketPolicy events on the specific bucket during the relevant time window — this satisfies the 'which principal attempted the change' requirement.",
+      "Use AWS Config with a managed rule (such as s3-bucket-public-read-prohibited) evaluating continuously with auto-remediation for the 'never public, automatic' requirement, and query CloudTrail for PutBucketPolicy events on the bucket for the 'which principal attempted the change' requirement.",
       "Use only AWS CloudTrail's management events to detect and prevent buckets from ever becoming public, since CloudTrail can be configured to block non-compliant API calls in real time before they take effect.",
       "Use only AWS Config to identify which specific IAM principal attempted to change the bucket policy, since Config configuration items include the full identity of whoever triggered each configuration change.",
-      "Rely exclusively on the already-enabled account-level S3 Block Public Access setting for both requirements, since it inherently provides both a continuous preventative control and a full audit trail of every principal who has ever attempted to modify a bucket policy."
+      "Rely exclusively on the already-enabled account-level S3 Block Public Access setting for both requirements, since it provides both a continuous preventative control and a full audit trail of every principal who has ever attempted to modify a bucket policy."
     ],
     "answer": 0,
     "explanations": [
@@ -5375,7 +5375,7 @@
     "options": [
       "Create a permanent IAM user for the vendor with an access key, grant it direct s3:GetObject on the entire data lake bucket, and instruct the vendor to delete the access key themselves after 90 days.",
       "Grant the vendor account's root user full administrative access to the AWS Organization's management account temporarily, since root-level access is the simplest way to grant broad but time-boxed access.",
-      "Grant Lake Formation cross-account permissions scoped only to the specific aggregate tables (never the raw event tables) to the vendor account's specified IAM role, add a corresponding grant on the KMS key policy permitting that role kms:Decrypt, and use an automated mechanism (such as a scheduled Lambda function or Step Functions workflow triggered on a 90-day timer) to programmatically revoke the Lake Formation grant and remove the KMS key policy statement at the end of the pilot period, rather than relying on manual follow-up.",
+      "Grant Lake Formation permissions scoped only to the aggregate tables, add a KMS kms:Decrypt grant for the vendor role, and auto-revoke both via a scheduled Lambda after 90 days.",
       "Share the aggregate tables with the vendor by exporting them to a public S3 bucket with no access controls for the duration of the pilot, since public access is easiest to set up and tear down."
     ],
     "answer": 2,
