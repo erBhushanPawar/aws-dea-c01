@@ -3630,6 +3630,886 @@
     "timeLimit": 132
   },
   {
+    "id": 166,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A trading platform ingests 200,000 order events per second through KPL-aggregated PutRecords calls into a 400-shard Kinesis Data Stream. A KCL 2.x consumer application aggregates per-symbol volume and writes results to DynamoDB. During a recent deployment, a rolling restart caused several worker checkpoints to be re-processed, and the finance team discovered duplicate volume counts in DynamoDB for a handful of symbols. The team has a hard SLA of under 2 seconds end-to-end latency, cannot introduce Managed Service for Apache Flink due to an unrelated platform freeze on new stateful services this quarter, and must retain the ability to reprocess the last 7 days of raw events if a bug is discovered in the aggregation logic. The compliance team has also mandated that the fix must not require re-architecting the existing KCL consumer application, since it underwent a lengthy internal security review only two months ago and another review would delay the fix by weeks. What is the most effective way to eliminate the duplicate-counting problem going forward without violating these constraints?",
+    "options": [
+      "Switch the consumer to Kinesis Data Firehose so AWS manages delivery and deduplication automatically.",
+      "Make the DynamoDB writes idempotent by using a deterministic key derived from each record's partition key and sequence number, so re-delivered records overwrite rather than double-count.",
+      "Reduce the stream to a single shard so only one KCL worker processes records, removing the possibility of concurrent checkpoint conflicts.",
+      "Enable Enhanced Fan-Out on the consumer so each worker gets a dedicated throughput pipe and no longer needs to checkpoint."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Firehose has no replay capability and cannot satisfy the 7-day reprocessing requirement, and it doesn't provide exactly-once consumer semantics either.",
+      "B – Correct. KCL/Kinesis only guarantees at-least-once delivery, so duplicates after a rebalance or restart are expected; the standard mitigation is making the downstream write idempotent (e.g., a conditional put keyed on sequence number) so re-processing the same record is a no-op.",
+      "C – Incorrect. Collapsing to one shard destroys the throughput needed for 200,000 events/sec and doesn't actually make checkpointing atomic with the DynamoDB write — duplicates can still occur.",
+      "D – Incorrect. Enhanced Fan-Out solves read-throughput contention between independent consumer applications; it has nothing to do with checkpoint semantics or duplicate delivery."
+    ],
+    "topic": "Kinesis Data Streams (and KCL) provide at-least-once delivery, not exactly-once — a worker crash or rebalance after processing but before checkpointing causes records to be redelivered. The exam-pattern trigger is 'duplicate records after a restart/rebalance,' which should point you to idempotent downstream writes (dedup key from partition key + sequence number) rather than trying to force exactly-once semantics out of the stream itself. Distractors that swap in Firehose or shrink shard count solve the wrong problem or break other constraints.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 167,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A media company runs an Amazon MSK cluster with a consumer group of 12 application instances processing clickstream events, using auto-scaling to add and remove consumer instances based on CPU load every few minutes. Operators notice that whenever the auto-scaler adds or removes an instance, the entire consumer group stops processing for 20-40 seconds, and this happens dozens of times per hour during traffic ramps, causing consumer lag to spike well past the team's freshness SLA. The team wants to keep auto-scaling (cost matters, and fixed capacity would be overprovisioned overnight) but eliminate the frequent processing stalls. A prior incident review already ruled out under-provisioned broker instance types as a contributing factor, since broker-level CPU and network metrics stay comfortably within normal range throughout every scaling event. Which change most directly addresses the root cause?",
+    "options": [
+      "Migrate from MSK to Kinesis Data Streams, which does not use consumer groups.",
+      "Increase the number of partitions on the topic so each scaling event affects a smaller fraction of the group.",
+      "Reduce the frequency of auto-scaling actions and increase session.timeout.ms/use a cooperative-sticky partition assignment strategy so scaling triggers fewer full group rebalances.",
+      "Switch producers to synchronous acknowledgment (acks=all) to slow down the rate of incoming messages."
+    ],
+    "answer": 2,
+    "explanations": [
+      "A – Incorrect. This is a costly rewrite that avoids the real issue rather than fixing it; Kinesis has its own consumer coordination behavior (via KCL leases) and migrating doesn't inherently solve rebalance stalls, it just changes the mechanism.",
+      "B – Incorrect. More partitions increases parallelism ceiling but does not prevent a full 'stop-the-world' rebalance from occurring every time group membership changes with the default eager rebalancing protocol.",
+      "C – Correct. The stalls are classic Kafka consumer group rebalance pauses triggered by eager rebalancing every time membership changes; reducing scaling frequency and adopting a cooperative-sticky (incremental) assignor lets unaffected partitions keep consuming during a rebalance instead of the whole group pausing.",
+      "D – Incorrect. Producer acknowledgment mode controls durability guarantees on writes and has no effect on consumer-side group coordination or rebalance behavior."
+    ],
+    "topic": "Kafka/MSK consumer groups use a partition assignment protocol; with the legacy eager assignor, every membership change (a consumer joining or leaving) triggers a full stop-the-world rebalance across the entire group. The cooperative-sticky assignor (KIP-429) allows incremental rebalancing so only affected partitions pause. This is an MSK-specific internals question the exam expects for candidates who know 'Kafka' triggers different mental models than Kinesis — distractors that move to Kinesis or tweak unrelated producer/partition settings miss the actual mechanism.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 168,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A data engineer builds a Glue Spark ETL job that joins three sources into one customer profile table: a nightly S3 export of nested JSON documents from a mobile app (where 'addresses' is an array of structs), a Redshift table with a flat relational schema, and a DynamoDB export where the same logical field is sometimes a string and sometimes a number across different items due to an old application bug. The job must produce a single flat Parquet output with a consistent schema, and downstream Athena consumers cannot tolerate query failures caused by schema ambiguity. The company's data governance policy also forbids writing intermediate, ungoverned tables to S3 as a workaround, since every table location must be registered and access-controlled through Lake Formation before any team can query it, ruling out ad hoc staging steps outside the job itself. Which combination of Glue capabilities should the engineer use to reliably resolve both the nested-array flattening and the inconsistent-type problem in one job?",
+    "options": [
+      "Use DynamicFrame.relationalize() to flatten the nested JSON into multiple flat tables, and DynamicFrame.resolveChoice() to explicitly cast the ambiguous field to one type.",
+      "Convert all three sources to plain Spark DataFrames immediately on read, and rely on Spark's schema-on-read inference to reconcile the differences automatically.",
+      "Run three separate Glue crawlers with 'Add new columns only' enabled and let Athena's SQL layer handle type coercion at query time.",
+      "Increase the number of Glue workers so the job has enough memory to hold every possible type variant in the output without erroring."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. relationalize() is the purpose-built DynamicFrame transform for pivoting nested/array structures into flat relational tables, and resolveChoice() is specifically designed to resolve columns where Glue's schema inference found multiple possible types (e.g., 'cast to type' or 'make_struct') — together they directly address both stated problems.",
+      "B – Incorrect. Plain Spark DataFrames require a single fixed schema upfront and will throw errors or silently produce nulls/corrupt records on the type-ambiguous DynamoDB field rather than resolving it; DynamicFrames exist precisely to tolerate and then explicitly resolve this kind of semi-structured ambiguity.",
+      "C – Incorrect. Crawler schema merge settings only affect what gets registered in the Data Catalog going forward; they don't fix an existing mixed-type column, and pushing type coercion to Athena query time causes the exact query failures the requirement says must be avoided.",
+      "D – Incorrect. More workers adds compute/memory capacity but does nothing to reconcile conflicting data types or flatten nested arrays — this is a data-modeling problem, not a resource-sizing problem."
+    ],
+    "topic": "Glue DynamicFrames carry a more flexible schema representation than plain Spark DataFrames specifically to handle messy, semi-structured, multi-source data. relationalize() flattens nested/array structures into a set of tables connected by generated join keys, while resolveChoice() lets you explicitly declare how to handle a column Glue detected as having multiple possible types (cast, keep as a struct, or pick one). The exam pattern here is 'multiple sources with schema conflicts' pointing to these two specific DynamicFrame transforms rather than generic Spark or catalog-level fixes.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 169,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A geospatial analytics company runs a nightly EMR Spark job on a transient cluster that joins a 4 TB dataset against a 1.2 TB dataset, both read from S3. The job currently uses a 20-node uniform On-Demand instance fleet and takes 5.5 hours, exceeding the 4-hour SLA before the results feed a morning dashboard. Cost reporting shows the cluster is the single largest line item in the data team's monthly AWS bill, and finance has capped further On-Demand spend increases. Ganglia metrics show heavy shuffle spill to disk and severe task-duration skew, with a small number of tasks taking 10x longer than the median. The team cannot change the join logic, since the aggregation feeds a regulatory report whose calculation methodology is frozen for the fiscal year. What combination of changes is most likely to bring the job under SLA while respecting the cost cap?",
+    "options": [
+      "Switch the entire cluster to Spot Instances of the same instance type and node count, since Spot is always cheaper regardless of workload.",
+      "Enable Adaptive Query Execution to dynamically coalesce shuffle partitions and handle skewed joins, add a Spot-heavy instance fleet with On-Demand only for master/core nodes, and increase the number of shuffle partitions to reduce skew.",
+      "Move the job from EMR to a Glue Python shell job, which has no cluster to manage and therefore cannot experience shuffle spill.",
+      "Repartition the input data into a single large partition before the join so Spark processes it as one task and skew no longer matters."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Moving entirely to Spot without addressing the underlying skew still leaves severe task imbalance, and an all-Spot cluster risks interruption-driven reruns that could make the SLA worse, not better; Spot is best mixed with On-Demand for critical master/core roles.",
+      "B – Correct. AQE directly targets shuffle spill and skewed joins by dynamically optimizing partition sizes and splitting skewed partitions at runtime; combining a Spot-heavy task fleet (cost control) with On-Demand for master/core (stability) addresses both the cost ceiling and the performance bottleneck without touching join logic.",
+      "C – Incorrect. Glue Python shell jobs run single-node Python, not distributed Spark, and cannot handle a 4 TB distributed join at all — this isn't a viable substitute engine for this workload.",
+      "D – Incorrect. Forcing everything into a single partition eliminates parallelism entirely, turning a distributed job into a single-task job that would take dramatically longer, not less — this is the opposite of the fix."
+    ],
+    "topic": "EMR/Spark tuning questions at the hard tier combine multiple symptoms (shuffle spill + task skew + a cost ceiling) that each point to a different lever: Adaptive Query Execution (AQE) is the modern Spark 3.x mechanism for both shuffle partition coalescing and skew-join splitting at runtime, while a mixed Spot/On-Demand fleet strategy (Spot for stateless task nodes, On-Demand for master/core) is the standard EMR cost-control pattern. The exam wants you to combine an engine-level fix with an infrastructure-level fix rather than picking a single silver bullet like 'just use Spot' or 'just add workers.'",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 170,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A company uses AWS DMS to perform ongoing CDC replication from an on-premises Oracle database into Amazon S3 as part of a data lake ingestion pipeline. The source table stores scanned contract documents in a BLOB column averaging 8 MB per row alongside normal transactional columns. After several weeks in production, the DMS task's CDC latency metric begins climbing steadily and the task eventually stops applying changes altogether, though the source database itself shows normal performance. CloudWatch shows the DMS replication instance's memory utilization pegged near 100%. The company cannot change the source schema, since the Oracle table is shared with a separate billing system the data team does not own, and needs CDC to resume without losing any pending changes that accumulated while the task was stalled. What is the most likely fix?",
+    "options": [
+      "Increase the DMS task's MaxFullLoadSubTasks setting so more tables load in parallel.",
+      "Enable LOB support with a bounded 'Limited LOB mode' (or use full LOB mode with an appropriately sized max LOB size) and increase the replication instance size, since unbounded LOB columns are consuming excessive memory during CDC apply.",
+      "Switch the migration type from 'ongoing replication' to 'full load only' and re-run a full load nightly instead.",
+      "Add a secondary DMS replication instance and split the CDC task by primary key range."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. MaxFullLoadSubTasks only affects the parallelism of the initial full load phase, not ongoing CDC apply, and does not address memory pressure from large LOB values.",
+      "B – Correct. DMS by default handles LOB columns in a memory-intensive way; large or unbounded BLOBs during CDC apply can exhaust the replication instance's memory over time. Configuring Limited LOB mode with a realistic max LOB size (or properly sizing full LOB mode) plus increasing instance size directly addresses the described symptom of climbing memory and stalled CDC.",
+      "C – Incorrect. Abandoning ongoing CDC for repeated full loads defeats the purpose of near-real-time replication, is far more expensive at scale, and doesn't fix the underlying LOB-handling problem — it just avoids CDC entirely.",
+      "D – Incorrect. DMS CDC tasks are not natively split by primary key range across multiple replication instances for a single ongoing task in this way; this doesn't address the root cause of LOB-driven memory exhaustion."
+    ],
+    "topic": "DMS LOB (large object) columns are a well-known operational edge case: DMS's default LOB handling can be memory-intensive, especially with 'full LOB mode' pulling entire objects without bounds, and large-object-heavy tables commonly degrade CDC performance over time as memory pressure builds on the replication instance. The exam-pattern trigger is 'BLOB/CLOB column + task slows down / stalls over time + normal source performance,' which should point to LOB mode tuning and replication instance sizing rather than parallelism or migration-type changes.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 171,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A payments company runs an AWS DMS ongoing CDC task replicating from a high-write-volume production Aurora MySQL cluster (peaking at 15,000 writes/sec during nightly batch settlement) into Amazon Redshift for near-real-time reporting. During the nightly settlement window, CDC latency spikes from seconds to over 45 minutes, though it recovers by morning. The reporting SLA requires latency under 5 minutes at all times, including during settlement. The DBA team refuses to change the source workload pattern, since settlement timing is dictated by external banking network cutoffs the company does not control, and the Redshift cluster has confirmed spare capacity throughout the window based on the past month of CloudWatch metrics. Which DMS-level change is most likely to reduce CDC latency during these write bursts?",
+    "options": [
+      "Switch the DMS task's apply mode from transactional apply to batch-optimized apply, which applies changes to the target in batches rather than as individual statements during high-throughput periods.",
+      "Increase the Aurora MySQL binlog retention period so DMS has more time to catch up after settlement ends.",
+      "Change the DMS source endpoint to use a read replica instead of the writer instance, since reads from a replica are always faster.",
+      "Enable Multi-AZ on the DMS replication instance to improve throughput."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. DMS's default transactional apply mode applies changes to the target in the same order and near-individually as they occurred, which becomes a bottleneck under very high write throughput; batch-optimized apply groups changes and applies them more efficiently at the cost of some ordering guarantees within a batch, directly targeting this kind of burst-driven latency.",
+      "B – Incorrect. Binlog retention only affects how long change data remains available on the source for DMS to read; it doesn't speed up how fast DMS applies changes to Redshift, so it wouldn't reduce the latency spike.",
+      "C – Incorrect. CDC requires reading the change stream (binlog), which is tied to the writer/replication topology; reading from a replica introduces its own replication lag relative to the writer and is not a supported way to speed up apply-side throughput to the target.",
+      "D – Incorrect. Multi-AZ for the DMS replication instance improves availability/failover, not throughput — it runs a synchronous standby, which doesn't change how fast changes are applied to the target."
+    ],
+    "topic": "When a DMS ongoing-CDC task shows latency spikes correlated with source write bursts but the source and target both have spare capacity, the bottleneck is usually the DMS apply mechanism itself. Transactional apply preserves strict statement-level ordering (safer but slower under load); batch-optimized apply trades some in-flight ordering guarantees for significantly higher throughput by grouping changes into batches before applying them to the target. This is a precise DMS configuration-tuning question, distinct from generic 'add more instance size' answers.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 172,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A logistics company's Kinesis Data Stream ingests GPS telemetry and is provisioned with 50 shards. To handle a traffic increase, an operator calls UpdateShardCount to scale to 100 shards during business hours. Immediately afterward, several KCL consumer application workers begin throwing lease-related exceptions, some records are temporarily reprocessed, and a few in-flight records appear to be processed out of order relative to their partition key. The team wants to understand why this happened and how to avoid disruption on the next scaling event, since the on-call engineer initially suspected an IAM permissions regression from an unrelated deployment earlier that day and spent an hour investigating that dead end before escalating. Which explanation and mitigation is correct?",
+    "options": [
+      "Resharding is instantaneous and should never cause any consumer disruption; the errors indicate an unrelated IAM permissions problem that must be fixed instead.",
+      "Resharding splits or merges shards and creates new shard lineage; KCL must detect the new shards, close out leases on parent shards, and create new leases for child shards, which naturally causes a brief period of lease churn and possible reprocessing — this is expected and mitigated by ensuring downstream processing is idempotent and scheduling reshards during lower-traffic windows.",
+      "UpdateShardCount silently drops all records enqueued during the resharding operation, so the correct fix is to pause producers entirely before any resharding operation.",
+      "The exceptions mean the stream must be deleted and recreated with the new shard count, since Kinesis does not support live resharding of an active stream."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Resharding is not instantaneous from the consumer's perspective; KCL must reconcile shard lineage and lease ownership, which takes time and can produce transient lease exceptions — this is documented, expected behavior, not an IAM issue.",
+      "B – Correct. Kinesis resharding (UpdateShardCount) closes parent shards and creates new child shards; KCL's lease-based coordination must detect this lineage change, which can briefly disrupt lease ownership and cause some at-least-once reprocessing. Since Kinesis only guarantees at-least-once delivery, idempotent downstream processing is the standard mitigation, alongside performing reshards during lower-traffic windows to minimize impact.",
+      "C – Incorrect. Kinesis does not drop records during resharding; parent shard data remains readable until it expires per the retention window, and child shards begin receiving new writes — pausing producers is unnecessary and not the documented mitigation.",
+      "D – Incorrect. Kinesis explicitly supports live resharding via UpdateShardCount without deleting and recreating the stream; this is one of its core operational capabilities."
+    ],
+    "topic": "Resharding (via UpdateShardCount, or manual shard split/merge) creates a parent-child shard lineage that KCL must reconcile, briefly disrupting lease ownership and causing some duplicate processing under at-least-once semantics. This is a classic 'looks like a bug but is actually documented behavior' hard-tier trap — the correct response isn't to fight the mechanism (delete/recreate, pause producers) but to design for it: idempotent consumers and reshard timing awareness.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 173,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A company uses Kinesis Data Firehose with dynamic partitioning enabled to route incoming JSON events into S3 prefixes based on a 'tenant_id' field extracted via a JQ expression, feeding a multi-tenant Athena data lake. After a producer team ships a bad deployment, a subset of events arrive missing the 'tenant_id' field entirely. The team notices these events are not appearing anywhere in the expected tenant prefixes, and wants to ensure that (a) malformed events are never silently dropped, since a past silent-drop incident triggered a customer-facing billing discrepancy that took weeks to reconcile, and (b) valid events continue to be delivered without interruption while the bad deployment is being fixed. What should they configure?",
+    "options": [
+      "Disable dynamic partitioning entirely until the producer bug is fixed, so all events fall back to a single flat prefix.",
+      "Configure Firehose's error output prefix so that records which fail the dynamic partitioning JQ expression are delivered to a separate S3 error prefix instead of being dropped, while records with a valid tenant_id continue to route normally.",
+      "Add a Lambda transformation that throws an exception on any record missing tenant_id, which causes Firehose to automatically retry until the field appears.",
+      "Increase the Firehose buffer interval to 900 seconds so more time is available for the field to be populated before delivery."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Disabling dynamic partitioning for all traffic is unnecessarily disruptive to the valid majority of events and doesn't solve the requirement of visibly capturing the malformed ones — it also loses proper partitioning for good data during the outage.",
+      "B – Correct. Firehose's dynamic partitioning feature supports a dedicated error output prefix specifically for records that fail partitioning (e.g., missing or malformed the partitioning key); this ensures malformed records are preserved and visible for investigation while unaffected records continue to be delivered and partitioned normally.",
+      "C – Incorrect. Throwing an exception in a Firehose transformation Lambda marks the record as processing-failed and Firehose will retry per its configured retry duration then move it to a failure/error bucket — it does not cause the missing field to appear, and using this as the primary mechanism is not how error-prefix routing is designed to work for partitioning failures specifically.",
+      "D – Incorrect. Buffer interval only controls how long Firehose batches records before delivery; it has no effect on whether a required field is present in a record and does not address missing data."
+    ],
+    "topic": "Firehose dynamic partitioning can fail per-record (e.g., the JQ expression can't extract the partitioning key), and Firehose is explicitly built to route those failures to a separate configurable error output prefix rather than dropping or blocking the pipeline. The exam pattern here is 'some records fail routing logic, don't want data loss, don't want to block good records' — the direct built-in feature is the error prefix, not a blanket feature toggle or an unrelated buffering change.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 174,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A ride-hailing company uses Amazon Managed Service for Apache Flink (Kinesis Data Analytics) to compute a 5-minute tumbling window average of trip fares per city, reading from a Kinesis Data Stream and writing results to another Kinesis stream for downstream consumption. During a planned application restart for a code deployment, the operations team wants to guarantee that no in-flight window state is lost and that the job resumes exactly where it left off, without reprocessing already-emitted window results or skipping any buffered events, since the fare-average output directly drives a surge-pricing decision engine and even a brief gap or duplicate emission causes visibly incorrect prices for riders. Which Flink/KDA capability directly provides this guarantee?",
+    "options": [
+      "Increase the number of Kinesis Processing Units (KPUs) allocated to the application before the restart.",
+      "Enable Kinesis Data Streams Enhanced Fan-Out on the source stream so the Flink application gets a dedicated read throughput pipe.",
+      "Rely on the application's checkpointing and savepoint mechanism: take a savepoint before stopping the application, then restart the application from that savepoint so operator state (including in-flight window aggregations) is restored exactly.",
+      "Set the Kinesis source stream's retention period to 7 days so there is enough buffer to manually replay events after restart."
+    ],
+    "answer": 2,
+    "explanations": [
+      "A – Incorrect. KPU count controls compute/parallelism capacity for the running application; it has no bearing on whether state is preserved across a restart.",
+      "B – Incorrect. Enhanced Fan-Out addresses read-throughput contention between multiple independent consumers of a stream; it does not provide any state-preservation or exactly-once-restart guarantee for the Flink application itself.",
+      "C – Correct. Managed Service for Apache Flink is built on Apache Flink's native checkpointing/savepoint mechanism, which periodically (or on-demand, via savepoint) persists full operator state, including in-progress window aggregations. Stopping with a savepoint and restarting from it restores exact application state, avoiding both data loss and reprocessing duplicates.",
+      "D – Incorrect. Longer stream retention only extends how far back you could manually re-read raw events; it does not automatically restore in-flight aggregation state, and manually replaying introduces exactly the reprocessing risk the requirement wants to avoid."
+    ],
+    "topic": "This distinguishes stateful stream processing (Flink/KDA, with built-in checkpointing and savepoints for exact state recovery) from stateless tooling. The exam-pattern trigger is a requirement for stateful correctness across a restart/deployment — 'resume exactly where it left off without reprocessing or losing in-flight aggregation state' is precisely what Flink's savepoint mechanism is designed for, versus generic scaling (KPUs), consumer throughput (EFO), or manual replay via retention, none of which touch application state.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 175,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A data platform team orchestrates a pipeline with AWS Step Functions: a Glue crawler updates the catalog, then a Glue ETL job transforms data and writes to S3, then an EMR step runs a heavier aggregation reading that same S3 output, then a final Lambda function loads summary results into DynamoDB. The team recently had an incident where the EMR step failed transiently (a Spot interruption), Step Functions retried the EMR step per its configured retry policy, and the retry succeeded — but the final DynamoDB summary ended up double-counting some records because the earlier, partially-completed EMR run had already written partial output before being interrupted. The on-call engineer initially assumed the double-counting was a bug in the final Lambda's aggregation logic and spent most of the incident review examining that function before realizing the true cause lay upstream in the EMR step's output handling. What is the most robust fix?",
+    "options": [
+      "Remove all retries from the Step Functions state machine so failures require manual intervention instead of automatic reprocessing.",
+      "Make the EMR step's output write idempotent — for example, having it write to a fresh, uniquely-named S3 output location per execution (using the Step Functions execution ID) or overwrite/replace a deterministic path rather than append — so a retried run cannot combine with a prior partial run's output.",
+      "Switch the EMR step from Spot to On-Demand instances only, since Spot interruptions are the sole cause of the double-counting.",
+      "Add an SNS notification after the EMR step so an operator is alerted whenever a retry occurs."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Removing retries trades an automation problem for an operational burden without fixing the underlying data-correctness issue; a manually re-triggered run would hit the exact same double-counting problem.",
+      "B – Correct. The root cause is that the EMR step's output is not idempotent — a partial write from an interrupted run combined with a full write from the successful retry to the same location. Designing each retryable step to write to a fresh, execution-scoped location (or fully overwrite a deterministic path) ensures a retry can never combine with stale partial output, which is the standard resiliency pattern for orchestrated pipelines with automatic retries.",
+      "C – Incorrect. On-Demand reduces the likelihood of interruption but doesn't eliminate all possible transient failures (network issues, cluster errors), and it doesn't fix the underlying non-idempotent write pattern that causes double-counting whenever any retry occurs, for any reason.",
+      "D – Incorrect. Alerting on retries is useful observability but is purely reactive — it doesn't prevent the data-correctness problem from occurring in the first place."
+    ],
+    "topic": "This tests the 'resiliency' design principle explicitly named in the exam guide: pipeline steps must be idempotent so that automatic retries after a partial failure don't corrupt or double-process data. The exam pattern is 'a retry succeeded but downstream data is now wrong' — the fix is never to simply remove retries or swap infrastructure types, but to make the retried step's side effects idempotent (fresh/deterministic output location) so repetition is always safe.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 176,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A data engineer configures a Lambda function as a Kinesis Data Streams consumer via an event source mapping, with batch size set to 500 records and a parallelization factor of 5. The team observes that overall throughput increased significantly after raising the parallelization factor from 1 to 5, but they've also noticed that records that were previously guaranteed to be processed in partition-key order are now sometimes processed out of order across concurrent invocations for the same shard. A downstream consumer relies on the original event order for the same device_id to correctly apply a running state machine, and the team has already ruled out a bug in that state machine itself after a thorough code review found no logic errors when fed manually-ordered test data. What is the correct explanation and fix?",
+    "options": [
+      "This is expected: a parallelization factor greater than 1 allows multiple concurrent Lambda invocations to process different batches from the same shard simultaneously, which can break ordering guarantees for records sharing the same partition key across those concurrent batches — set the parallelization factor back to 1 to preserve strict per-shard ordering, and instead scale throughput by adding more shards.",
+      "The out-of-order behavior means the event source mapping is misconfigured and should use a batch size of 1 to restore ordering while keeping parallelization factor at 5.",
+      "Lambda always processes Kinesis records in the exact order they were written to the shard regardless of parallelization factor, so the observed behavior must be an unrelated bug in the downstream state machine.",
+      "Switch to consuming via Kinesis Data Firehose instead of a direct Lambda event source mapping, since Firehose guarantees strict ordering across concurrent readers."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Increasing the parallelization factor allows multiple Lambda invocations to concurrently process different batches pulled from the same shard, which trades strict per-shard ordering for higher throughput. If per-key ordering must be preserved, parallelization factor should stay at 1 and throughput scaled instead by increasing shard count (each shard's records are still processed in order by a single invocation stream) combined with good partition-key distribution.",
+      "B – Incorrect. Batch size controls how many records are delivered per invocation; it doesn't restore cross-invocation ordering when parallelization factor is greater than 1, and reducing batch size to 1 would severely hurt throughput without fixing the actual cause.",
+      "C – Incorrect. This is factually wrong — Lambda's default behavior (parallelization factor of 1) does preserve per-shard order, but a parallelization factor greater than 1 explicitly changes this guarantee, which is documented AWS behavior, not a bug elsewhere.",
+      "D – Incorrect. Firehose is a delivery mechanism into destinations like S3/Redshift, not a mechanism for a Lambda function to consume with ordering guarantees, and switching to it doesn't preserve the record-by-record processing pattern needed by the downstream state machine."
+    ],
+    "topic": "Lambda's Kinesis event source mapping ordering guarantee is per-shard and only holds when parallelization factor is 1; raising the parallelization factor (used to fix a slow, bottlenecked single consumer) explicitly trades that ordering guarantee for concurrency. This is a precise, easy-to-miss internals distinction the exam tests directly — the fix for 'need both high throughput and per-key order' is to add shards (with a partition key scheme that keeps a given key on one shard) rather than raising parallelization factor, which is what actually broke the ordering here.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 177,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A financial data vendor currently runs a large on-premises Apache Kafka cluster feeding downstream consumers via Kafka Connect sink connectors, including a connector that writes to a legacy on-prem data warehouse. As part of a phased AWS migration, the company stands up Amazon MSK and needs to add a new sink that delivers topic data into S3 as Parquet, while the legacy on-prem sink connector continues running unchanged during the transition (it cannot be touched until a separate compliance sign-off, expected in 6 months). The new S3 sink must guarantee exactly-once delivery semantics and must integrate with existing Kafka Connect tooling and configuration the team already knows, since the two engineers who understand the on-prem connector configuration in depth are both leaving the company within the month and there is no time budget to train the remaining team on an unfamiliar new toolchain. Which approach best fits all these constraints?",
+    "options": [
+      "Deploy MSK Connect with the Confluent S3 sink connector (or equivalent Kafka Connect S3 sink) configured for exactly-once semantics, running alongside the existing on-prem Kafka Connect deployment reading from MSK.",
+      "Replace Kafka entirely with Kinesis Data Streams and use Kinesis Data Firehose to deliver to S3, since Firehose natively guarantees exactly-once delivery.",
+      "Write a custom Lambda function triggered on a schedule to poll MSK topics and batch-write to S3 as Parquet.",
+      "Use AWS DMS to replicate directly from the Kafka cluster to S3."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. MSK Connect runs Kafka Connect connectors (including standard sink connectors like the S3 sink) as a managed service, preserving the team's existing Kafka Connect tooling/configuration knowledge, supporting exactly-once semantics when configured appropriately, and requiring no change to the still-required legacy on-prem sink connector, which can keep consuming from the same topics independently.",
+      "B – Incorrect. Firehose doesn't provide Kafka protocol compatibility, doesn't preserve the team's existing Kafka Connect tooling, and this option requires replacing the entire streaming platform — a disproportionate change relative to what's being asked, and it also doesn't address the requirement to keep the legacy on-prem connector functioning unchanged against the same data.",
+      "C – Incorrect. A custom Lambda polling solution is a from-scratch reimplementation that discards the team's existing Kafka Connect expertise/config and introduces significant engineering effort and operational risk compared to a managed connector that already does this.",
+      "D – Incorrect. DMS is designed for database migration and CDC from relational/NoSQL database engines, not for consuming from a Kafka topic and writing to S3 — it is not a supported source/target pattern for this use case."
+    ],
+    "topic": "MSK Connect is the managed Kafka Connect runtime on AWS, letting teams reuse standard, off-the-shelf Kafka Connect sink/source connectors (like an S3 sink) without operating their own Connect cluster. The exam-pattern trigger is 'existing Kafka Connect connectors/tooling' plus 'must keep another Kafka consumer unaffected' — this points to keeping Kafka/MSK as the platform and adding a connector, not swapping the whole streaming layer for Kinesis or reinventing delivery in Lambda.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 178,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "An AWS Glue job with job bookmarks enabled performs an incremental JDBC extract from an on-premises SQL Server table using a bookmark key of order_id, intended to pull only newly inserted rows on each run. After several successful runs, the data team discovers that a batch of rows was silently skipped — those rows had been inserted by a backfill process that assigned them order_id values lower than the current bookmark high-water mark, even though they were inserted after the last successful job run. The downstream finance team only discovered the gap weeks later during a routine reconciliation, by which point the missing rows had already caused a discrepancy between the source system and the data lake's reported order totals. What is the underlying cause and the correct fix?",
+    "options": [
+      "Glue job bookmarks track progress using the configured bookmark key's value, and rows with a key value below the current bookmark are always treated as already processed regardless of insertion time — the fix is to use a strictly monotonically increasing column (such as an insert timestamp or an auto-incrementing surrogate column guaranteed to increase with insertion order) as the bookmark key instead of order_id.",
+      "Job bookmarks are unreliable for JDBC sources in general and should be replaced entirely with a manual 'last processed timestamp' stored in Parameter Store.",
+      "The Glue job simply needs to be re-run with --job-bookmark-option job-bookmark-disable to pick up the missed rows, and bookmarks will continue working correctly afterward with no further changes.",
+      "The backfill rows were skipped because the JDBC connection object's timeout was too low, causing partial reads."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Glue bookmarks for JDBC sources work by tracking the maximum value seen for the configured bookmark column and only selecting rows above that watermark on subsequent runs; if the chosen column isn't guaranteed to increase in lockstep with actual insertion order (as with a backfill inserting historically-numbered rows after the fact), rows can be permanently skipped. The fix is choosing a column that reliably reflects insertion order, like a timestamp or true auto-increment column populated at insert time.",
+      "B – Incorrect. Bookmarks are a supported, standard mechanism for incremental JDBC extraction; the problem here is a column-choice mistake, not a fundamental unreliability of the bookmark feature itself — replacing it wholesale is an overcorrection.",
+      "C – Incorrect. Disabling bookmarks for one run and reprocessing would re-pull the full dataset (including this batch) but doesn't fix the underlying cause, so any future backfill with the same pattern would cause the identical silent-skip problem again.",
+      "D – Incorrect. JDBC connection timeouts would cause connection failures or partial errors that surface as job failures, not a silent skip of specific rows based on their key value — this doesn't match the described symptom."
+    ],
+    "topic": "Glue job bookmarks for JDBC sources rely on a monotonically increasing bookmark column to determine 'what's new since last run.' If backfilled or out-of-order-inserted rows have key values lower than the current high-water mark, they're invisible to the bookmark logic even though they're new to the table — a subtle, easy-to-miss failure mode. The exam wants you to recognize that bookmark correctness depends entirely on the chosen column's relationship to actual insertion order, not just its uniqueness or increasing nature in isolation.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 179,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A retailer is migrating its on-premises PostgreSQL order database to Aurora PostgreSQL using AWS DMS with a full load followed by ongoing CDC for cutover. The full load of 900 GB completes successfully, but the team discovers that during the multi-hour full-load window, several thousand orders were both inserted and then updated/deleted on the source before the full load task reached those specific tables, and the team is unsure whether ongoing CDC captured changes that occurred during the full load itself. The cutover plan requires zero data loss and the team has one maintenance window before go-live, since the order database backs a customer-facing checkout flow that cannot tolerate an extended outage during business hours and a second window won't be approved by change management for another month. What must the team verify and how should they structure the migration to guarantee correctness?",
+    "options": [
+      "Confirm that CDC capture started (and the CDC start position/timestamp was recorded) before the full load began, since DMS full-load-and-CDC tasks are designed to begin capturing changes at task start and buffer/apply them after full load completes — this ensures changes occurring during full load are not lost, and the team should validate with DMS table statistics and row counts before cutover.",
+      "Re-run the full load a second time immediately before cutover to guarantee no rows were missed, since CDC cannot capture changes made during an in-progress full load.",
+      "Use AWS SCT instead of DMS for the entire migration, since SCT handles concurrent changes during migration natively.",
+      "Perform the cutover immediately without further verification, since DMS full-load-and-CDC tasks are guaranteed to be perfectly consistent by default with no configuration required."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. A DMS task configured for 'full load + CDC' begins capturing change events from the source at the start of the task (before or concurrent with full load), buffering them so that changes occurring during the full load window are captured and applied once full load completes — the team should verify the CDC start point was correctly established and use DMS's validation/table statistics features to confirm consistency before cutover, rather than assuming correctness blindly.",
+      "B – Incorrect. Re-running a multi-hour full load doesn't address the underlying question of whether CDC properly captured the interim changes, wastes the limited maintenance window, and duplicates unnecessary work if CDC was already correctly configured.",
+      "C – Incorrect. AWS SCT is a schema conversion tool for translating database schema/code between engines; it does not perform data movement or CDC at all — this is the wrong tool for the described problem.",
+      "D – Incorrect. While full-load-plus-CDC is designed to handle this scenario correctly, it is not something to assume blindly without verification — DMS provides validation features specifically because misconfiguration (e.g., CDC not started at the right point) can cause data loss, and a zero-data-loss requirement demands active verification, not blind trust."
+    ],
+    "topic": "DMS's full-load-and-CDC migration type is explicitly designed to solve the 'changes during a long-running full load' problem: CDC capture begins at task start (before or alongside full load), and captured changes are cached and applied after full load finishes, ensuring no gap. The hard-tier trap here is assuming you must re-run full load or that DMS is either flawlessly automatic or fundamentally incapable of handling concurrent source changes — the correct answer is to understand the mechanism and actively validate it (DMS validation/table statistics) before a zero-data-loss cutover, not to distrust or duplicate the tool's designed behavior.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 180,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A global payments company runs Amazon MSK clusters independently in us-east-1 and eu-west-1 for regulatory data-residency reasons, but a new fraud-detection service needs a near-real-time, filtered subset of transaction topics (excluding any field containing customer PII) replicated from both regional clusters into a single us-east-1 topic for cross-region pattern analysis. The replication must survive a regional MSK outage without losing in-flight messages, and the security team requires that PII fields never leave their region of origin, even transiently, following a recent audit finding that flagged an unrelated pipeline for a similar cross-border data movement violation. Which approach satisfies all of these requirements?",
+    "options": [
+      "Use MSK Replicator with a replication policy that filters out PII fields before cross-region replication, configured with the appropriate topic/field-level filtering, so only the non-PII subset ever crosses the region boundary.",
+      "Use MirrorMaker 2 to do a full, unfiltered replication of both regional clusters into us-east-1, then run a Glue job in us-east-1 to strip PII fields after the data has already landed.",
+      "Have producers in both regions write PII-free events directly to a single global MSK cluster spanning both regions, eliminating the need for cross-region replication entirely.",
+      "Use S3 Cross-Region Replication to copy MSK's underlying broker storage between regions."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. MSK Replicator is AWS's managed cross-region replication service for MSK, and can be configured with topic and (via appropriate producer/consumer-side or replication policy filtering) field-level exclusion so PII fields are filtered before replication ever crosses the region boundary, satisfying both the 'never leave region even transiently' requirement and the durability/failover needs of managed replication.",
+      "B – Incorrect. This violates the explicit requirement that PII must never leave its region of origin even transiently — replicating everything unfiltered and then stripping PII afterward means PII data crossed the region boundary, which is exactly what's prohibited.",
+      "C – Incorrect. MSK clusters are regional resources; there is no single MSK cluster that spans two AWS regions, and this doesn't reflect how MSK is architected or deployed.",
+      "D – Incorrect. MSK does not expose or support direct manipulation of underlying broker storage via S3 replication — this isn't how MSK's managed infrastructure works and wouldn't produce a consistent, ordered stream of application-level messages."
+    ],
+    "topic": "MSK Replicator is the purpose-built managed service for cross-region (and cross-cluster) MSK replication, supporting filtering so specific topics or fields can be excluded from what gets replicated. The exam-pattern trap here is a distractor (MirrorMaker 2 unfiltered + downstream cleanup) that looks technically similar but violates a stated compliance constraint by letting PII transiently cross a region boundary before being removed — 'never leave the region even transiently' is the deciding phrase that rules it out.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 181,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A retail company wants to sync customer opportunity and case records from Salesforce into its S3 data lake every 15 minutes, applying field-level filtering (only specific objects/fields, not the full Salesforce schema) and handling Salesforce API rate limits automatically since the team has been burned before by custom scripts hitting API quotas during peak usage. Separately, the same team also needs to pull data from an internal legacy inventory system that only exposes a proprietary, undocumented binary protocol over a VPN tunnel, with no REST/SOAP API available at all, and the vendor that originally built the inventory system's integration layer went out of business years ago, leaving only a terse internal wiki page describing the byte layout. Which combination of services correctly matches each source?",
+    "options": [
+      "Amazon AppFlow for the Salesforce sync (handles auth, pagination, field filtering, and rate limits natively); a custom application (e.g., on EC2 or in a container within the VPC, connecting over the VPN tunnel) for the proprietary legacy protocol, since AppFlow only supports its list of recognized SaaS connectors.",
+      "Amazon AppFlow for both sources, since AppFlow can be configured with a custom connector SDK to talk to any protocol, including proprietary binary protocols.",
+      "AWS Glue JDBC connections for both sources, since Glue can connect to any external system given the right network path.",
+      "AWS DMS for the Salesforce sync (treating Salesforce as a database source) and Amazon AppFlow for the legacy proprietary protocol."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. AppFlow has native, managed connectors for major SaaS platforms including Salesforce, handling authentication, pagination, field-level filtering, and rate limiting without custom code — exactly the described need. The proprietary undocumented binary protocol has no AppFlow connector and isn't a JDBC/ODBC-compatible relational source, so it requires custom application code (e.g., a containerized or EC2-based service within the VPC) that can speak the protocol directly over the existing VPN tunnel.",
+      "B – Incorrect. While AppFlow does have a Custom Connector SDK for building connectors to non-native systems, it's designed around structured API-based integration (REST-like patterns), not arbitrary proprietary binary protocols — for a protocol this nonstandard, custom application code is the realistic and correct answer, not forcing it into AppFlow's connector framework.",
+      "C – Incorrect. Glue JDBC connections are specifically for JDBC-compliant relational database sources; Salesforce is not accessed via JDBC in typical AppFlow-style integration, and a proprietary binary protocol has no JDBC driver at all — Glue JDBC doesn't fit either source as described.",
+      "D – Incorrect. DMS is designed for database migration/CDC from database engines, not a general SaaS application API, and Salesforce is not a database engine DMS supports as a source in this way; the pairing is reversed and incorrect regardless."
+    ],
+    "topic": "AppFlow is the direct-pointer answer whenever a scenario names a recognized SaaS platform (Salesforce, ServiceNow, Slack, Zendesk, Google Analytics) — it manages auth, pagination, and rate limiting out of the box. A named source with no API at all, especially a proprietary/undocumented protocol, falls outside AppFlow's and Glue's built-in connector models entirely and requires custom application code. The exam tests whether you can correctly split a two-source scenario rather than forcing one tool to (incorrectly) handle both.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 182,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A Glue Spark ETL job configured with G.1X workers (16 GB memory, 1 executor per worker) repeatedly fails with Java heap space OutOfMemoryError while processing a dataset that grew from 200 GB to 1.5 TB over the past year as the business scaled. Investigation shows the failure consistently occurs during a groupBy aggregation on a customer_region column, and CloudWatch metrics show a small number of executors consuming dramatically more memory than others just before failure, while most executors remain lightly loaded. Simply increasing the number of G.1X workers has not resolved the failures, and the on-call engineer's first two attempted fixes — doubling worker count and enabling job bookmarks, neither previously configured — both failed to prevent the same OutOfMemoryError on the next scheduled run. What is the most likely root cause and the best combination of fixes?",
+    "options": [
+      "The dataset has simply outgrown the cluster's total memory; the fix is only to add more G.1X workers until total memory exceeds the dataset size.",
+      "Data skew in customer_region (some regions have vastly more rows than others) is concentrating disproportionate data on a small number of partitions/executors during the groupBy shuffle; the fix is to address the skew (e.g., salting the skewed key or enabling Adaptive Query Execution's skew join handling) and increase worker memory by switching to G.2X or G.4X workers rather than just adding more G.1X workers.",
+      "The job should be rewritten to avoid using Spark entirely and instead use a Glue Python shell job, which has no memory limits.",
+      "The OutOfMemoryError is unrelated to the data or job logic and is caused by an expired Glue job bookmark that needs to be reset."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Adding more workers increases total cluster capacity but doesn't fix skew — if a handful of partitions are disproportionately large due to skewed key distribution, those specific executors will still run out of memory regardless of how many additional lightly-loaded workers exist elsewhere in the cluster.",
+      "B – Correct. The described symptom — a small number of executors consuming dramatically more memory than others during a groupBy shuffle — is the signature of data skew, where certain key values (regions) have disproportionately many rows. Adding more G.1X workers doesn't help because the skewed partitions still land on individual executors; the fix combines addressing the skew itself (salting or AQE skew handling) with giving those executors more per-worker memory (G.2X/G.4X) rather than simply adding more equally-sized workers.",
+      "C – Incorrect. Glue Python shell jobs run as a single-node Python process without Spark's distributed processing and have their own separate memory constraints; they are not a viable substitute for a large distributed groupBy aggregation and would fail even faster on a 1.5 TB dataset.",
+      "D – Incorrect. Job bookmarks track incremental processing state for reruns; they have no relationship to per-executor memory consumption during a shuffle operation and an expired bookmark would not cause an OutOfMemoryError."
+    ],
+    "topic": "This is a classic data-skew diagnostic pattern: uneven memory/task distribution across executors during a shuffle-heavy operation (groupBy, join) points to skewed key distribution, not simple undersizing. Adding uniform G.1X workers is a tempting but ineffective fix because skew concentrates load on specific partitions regardless of total cluster size — the correct combination is addressing the skew directly (salting keys, or AQE's built-in skew-join optimization) plus increasing per-worker memory capacity (larger worker type) so the naturally larger skewed partitions can be processed without failing.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 183,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A geospatial imaging company runs Spark jobs on a long-running EMR cluster that reads and writes millions of small (under 1 MB) satellite tile images stored in S3, using EMRFS as the S3 connector. Job run times have degraded significantly over the past several months as the S3 prefix has grown to tens of millions of objects, and CloudWatch shows the Spark job spending a disproportionate amount of time in S3 listing/metadata operations rather than actual computation. The team cannot change the upstream system that produces these small files, since it is operated by the satellite imaging vendor under a fixed multi-year contract with no near-term renegotiation window, but they can change how the EMR job reads and organizes the data. Which combination of changes will most directly address the performance problem?",
+    "options": [
+      "Enable EMRFS consistent view (or migrate off it toward S3's now-strongly-consistent default) and compact the small files into larger objects (targeting roughly 128 MB–1 GB per file) as an intermediate step before the main processing job runs, reducing the total object count the job must list and open.",
+      "Increase the EMR core node instance type to one with more vCPUs, since the bottleneck is compute-bound.",
+      "Switch the storage layer from S3 to EBS volumes attached directly to each core node for lower latency.",
+      "Disable Spark's speculative execution, since duplicate task execution is causing the extra S3 listing overhead."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Millions of small objects create severe S3 listing/metadata overhead (the 'small file problem') that dominates job time regardless of compute power; the standard, direct fix is compacting small files into the recommended ~128 MB–1 GB range as a preprocessing step, which dramatically reduces the number of objects the job must list and open, directly targeting the described bottleneck.",
+      "B – Incorrect. The described bottleneck is explicitly S3 listing/metadata overhead, not raw computation — more vCPUs would not meaningfully reduce time spent on object listing operations, since that overhead is largely about the number of S3 API calls, not CPU-bound processing.",
+      "C – Incorrect. Moving petabyte-scale imaging data to EBS is impractical (EBS volumes are per-instance, limited in size, and not designed as a shared data lake storage layer at this scale) and doesn't address the root small-file-count problem — it would just move the problem to a different storage layer.",
+      "D – Incorrect. Speculative execution reruns slow tasks on other nodes as a straggler mitigation; it is unrelated to S3 listing overhead and disabling it would not meaningfully change the amount of time spent listing/opening millions of small objects."
+    ],
+    "topic": "The 'many small files hurting Athena/Glue/EMR performance' pattern almost always resolves to compaction toward the 128 MB–1 GB optimal file size range, not compute scaling. On EMR specifically, EMRFS handles S3 access, and excessive small-object counts translate directly into excessive S3 API call overhead (listing, opening) that dominates job time independent of cluster compute size — recognizing this distinguishes a storage/data-organization problem from a compute-sizing problem, which is the trap in this question.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 184,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "An IoT platform ingests 50,000 small (150-byte) telemetry records per second from field devices into a Kinesis Data Stream. The current producer code calls the single-record PutRecord API once per telemetry event, and the team is seeing both high producer-side CPU overhead and unexpectedly high monthly Kinesis PUT payload unit costs relative to the actual data volume. A colleague suggests simply adding more shards to fix both problems. Given that Kinesis charges are partly based on the number of PUT payload units consumed (with each 25 KB, or fraction thereof, of a PutRecords/PutRecord request counted as one unit), and given that the finance team has flagged the Kinesis line item as growing disproportionately faster than actual device count, what is the more effective fix?",
+    "options": [
+      "Add more shards until throughput bottlenecks disappear, since shard count is the only lever that affects both cost and throughput.",
+      "Switch the producer to use the Kinesis Producer Library (KPL) with record aggregation enabled, which combines many small user records into fewer, larger PutRecords requests — reducing both the number of billed payload units (since each 150-byte record no longer separately rounds up to a full unit) and producer-side API call overhead.",
+      "Switch to Kinesis Data Firehose for ingestion, since Firehose has no per-record billing at all.",
+      "Reduce the number of telemetry fields sent per record so each record is smaller, which will proportionally reduce the number of PUT payload units."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Adding shards increases throughput capacity but does not address the root cause of cost/overhead — many small individual PutRecord calls each still separately consume at least one payload unit and incur per-call overhead regardless of how many shards exist.",
+      "B – Correct. KPL's record aggregation packs multiple small user records into a single Kinesis record (up to the 1 MB record size limit), meaning many 150-byte records that would otherwise each round up to consume a full 25 KB payload unit individually can instead share far fewer payload units in aggregate, directly reducing both billed PUT payload units and the number of API calls/CPU overhead on the producer side.",
+      "C – Incorrect. Firehose does have its own cost model (based on data volume ingested, not eliminating cost entirely), and more importantly, switching ingestion models doesn't address the underlying inefficiency of sending many tiny individual records — it also changes the pipeline's replay characteristics, which isn't asked for here and may not be acceptable.",
+      "D – Incorrect. Since a 150-byte record already rounds up to consume one full 25 KB payload unit regardless of its exact small size, making individual records even smaller doesn't reduce the number of payload units consumed per record at all — the inefficiency is from the per-record overhead of many small separate calls, not the field count."
+    ],
+    "topic": "Kinesis PUT payload units are billed per 25 KB (or fraction) per request; sending many sub-25 KB records individually means each one independently rounds up to a full billable unit, which is highly inefficient for small-record, high-throughput workloads. KPL's aggregation feature (packing multiple user records into one Kinesis record) is the standard fix, directly reducing both billed units and producer-side call overhead — a distinct optimization lever from simply adding shards, which addresses throughput capacity but not this specific small-record cost inefficiency.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 185,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A data engineering team needs to run a lightweight daily transformation: download a 300 MB CSV file from a partner's HTTPS endpoint, apply a handful of column renames and type casts, and write the result as Parquet to S3. The job must complete in under 3 minutes to satisfy a downstream SLA, and the team has a strict monthly compute budget that makes a permanently provisioned or auto-scaling Spark cluster unattractive for a job this small. The team already has similar lightweight jobs running as Glue Python shell jobs elsewhere and wants to stay consistent with that pattern if it fits, since a prior architecture review flagged tool sprawl (too many different job types for similar-sized workloads) as a maintainability risk the team is actively trying to reduce. Which choice best fits both the SLA and cost constraints?",
+    "options": [
+      "A Glue Python shell job using pandas (or similar) for the transformation, since the data volume is small enough for single-node processing, avoiding the startup overhead and DPU cost of a full Spark job for a task this lightweight.",
+      "A full Glue Spark ETL job with G.2X workers and auto-scaling enabled, since Spark is always the more 'correct' choice for any Parquet conversion regardless of data size.",
+      "An EMR cluster with 10 core nodes provisioned specifically for this daily job, terminated after each run.",
+      "An AWS Glue streaming ETL job reading from a Kinesis Data Stream fed by the partner's HTTPS endpoint."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. A 300 MB single file with simple transformations (renames, type casts) is well within single-node processing capability; a Glue Python shell job avoids the Spark cluster startup/initialization overhead that a full Glue Spark job incurs (often 1+ minutes just to provision), and consumes far fewer DPUs, directly fitting both the tight time SLA and the cost constraint while matching the team's existing pattern for similarly lightweight jobs.",
+      "B – Incorrect. A full Spark job for 300 MB of data is significant overkill — Spark's cluster startup overhead alone risks consuming a meaningful fraction of the 3-minute SLA, and G.2X workers with auto-scaling cost considerably more than a Python shell job for a workload this small, working against the stated cost constraint.",
+      "C – Incorrect. Standing up and tearing down a 10-node EMR cluster daily for a 300 MB single-file job is dramatically over-provisioned compute for the task, both in cost and in cluster startup time working against the SLA.",
+      "D – Incorrect. There is no streaming source here — the data arrives as a one-time daily HTTPS file download, not a continuous stream, so a streaming ETL job reading from Kinesis doesn't match the described ingestion pattern at all and would require inventing an unnecessary intermediate streaming layer."
+    ],
+    "topic": "This is a straightforward engine-selection tradeoff that hard-tier questions dress up with cost and latency constraints: Glue Python shell jobs are purpose-built for lightweight, single-node, sub-15-minute batch transforms and avoid the startup overhead and DPU cost of spinning up a Spark cluster (Glue Spark or EMR) for data volumes that don't need distributed processing. The exam wants you to recognize when a workload's actual size (300 MB, simple transform) doesn't justify the heavier engines, rather than defaulting to 'Spark is always the safe answer for Parquet conversion.'",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 186,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A seismic exploration company collects 400 TB of raw sensor data at a remote field site with no reliable internet connectivity beyond an intermittent, low-bandwidth satellite link. The data must reach the company's S3-based data lake within 3 weeks to meet a contractual analysis deadline, and it must remain encrypted both at the field site and in transit. Separately, the company's home-office engineering team needs an ongoing, automated way to sync smaller (under 50 GB per day) processed result files from an on-premises NAS to S3 continuously going forward, with bandwidth throttling so the sync doesn't saturate the office's shared internet link during business hours, since the last time an unthrottled bulk transfer ran during the day it degraded video-conferencing quality for the entire office and prompted a complaint from the facilities team. Which combination of services fits both needs?",
+    "options": [
+      "AWS Snowball Edge devices shipped to and from the field site for the 400 TB bulk transfer (avoiding reliance on the unreliable satellite link), and AWS DataSync for the ongoing NAS-to-S3 sync with its built-in bandwidth throttling controls.",
+      "AWS DataSync for both the 400 TB field-site transfer and the ongoing NAS sync, since DataSync can handle any data volume given enough time.",
+      "AWS Transfer Family SFTP for the 400 TB field-site transfer, and Snowball Edge for the ongoing daily NAS sync.",
+      "Amazon S3 Transfer Acceleration for both use cases, since it is designed specifically for large one-time transfers over unreliable links."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Snowball Edge is purpose-built for large-scale, offline (physically shipped) data transfer when network connectivity is unreliable or insufficient — a 400 TB transfer over intermittent low-bandwidth satellite would take far too long and risk missing the 3-week deadline, while Snowball devices also support encryption at rest during transit. DataSync is designed for automated, ongoing, network-based transfer between on-premises storage (NAS/NFS/SMB) and S3, with configurable bandwidth throttling — a precise fit for the second requirement.",
+      "B – Incorrect. Attempting to move 400 TB over an intermittent, low-bandwidth satellite link via DataSync would almost certainly miss the 3-week deadline; DataSync is well-suited for the ongoing smaller sync but is not the right tool for this specific bulk, connectivity-constrained transfer.",
+      "C – Incorrect. This reverses the fit: SFTP over an unreliable low-bandwidth satellite link is a poor way to move 400 TB within 3 weeks (no better than DataSync, and lacking DataSync's optimizations), while using physical Snowball devices for a small, continuous 50 GB/day sync is impractical and far too slow-cycle for an ongoing daily process.",
+      "D – Incorrect. S3 Transfer Acceleration optimizes network-based uploads over the public internet using CloudFront edge locations; it does not solve the fundamental problem of insufficient/unreliable bandwidth at the remote site, and it is not designed for scheduled, throttled, ongoing NAS synchronization."
+    ],
+    "topic": "This pairs two distinct migration tools by matching each to its defining constraint: Snowball Edge is the answer whenever available bandwidth genuinely cannot move the required data volume within the deadline (physical shipping bypasses the network bottleneck entirely), while AWS DataSync is the answer for ongoing, automated, network-based file transfer between on-premises storage and AWS with built-in scheduling and bandwidth throttling. The exam tests whether you can split a two-part scenario into its correct tool per sub-problem rather than forcing one tool to cover both very different constraints.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 187,
+    "domain": 1,
+    "difficulty": "hard",
+    "question": "A data lake team ingests clickstream events in near-real-time into an Apache Iceberg table on S3 (cataloged in the AWS Glue Data Catalog) using two independent Glue streaming ETL jobs that both read from the same Kinesis Data Stream but process different partition ranges and write concurrently to the same Iceberg table. During a load test, the team observes intermittent CommitFailedException errors from one of the two writer jobs, though no data appears to be lost or corrupted afterward — the failing job's writes simply fail and the job's retry logic re-attempts them, though the team is concerned enough about a potential production incident that they have already paused onboarding additional downstream consumers of this table until the behavior is understood. What is the correct explanation for this behavior, and is any further action needed?",
+    "options": [
+      "This is expected behavior: Iceberg uses optimistic concurrency control, so when two writers attempt to commit new snapshots concurrently, one commit succeeds and the other fails with a conflict exception and must retry against the new table state — the team should ensure the writer jobs have retry logic (which they do) rather than trying to eliminate concurrent writers.",
+      "This indicates S3 is silently corrupting data during concurrent writes and the team must switch to a single-writer architecture immediately to prevent data loss.",
+      "This indicates the Glue Data Catalog table definition is out of sync and a crawler must be run immediately to fix the schema before any further writes are attempted.",
+      "This is caused by S3 eventual consistency and will be resolved by enabling S3 Strong Consistency, which is not enabled by default."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Iceberg's transaction model uses optimistic concurrency control at the metadata/snapshot level: each writer reads the current table metadata, prepares a new snapshot, and attempts an atomic commit; if two writers commit concurrently, the second one's commit is based on stale metadata and fails with a CommitFailedException, requiring a retry against the newly updated table state. This is documented, expected Iceberg behavior for concurrent writers, not a data-loss condition, and standard practice is exactly what's already happening — retrying on conflict.",
+      "B – Incorrect. Nothing in the described symptoms indicates S3 data corruption; Iceberg's commit conflict mechanism is an application/metadata-layer protection specifically designed to prevent corruption from concurrent writes, and the fact that no data loss occurred confirms the protection is working as intended.",
+      "C – Incorrect. A schema mismatch would typically produce a different class of error (schema validation failures), not a commit conflict exception tied to concurrent snapshot creation; running a crawler doesn't address optimistic concurrency conflicts and isn't the documented mechanism at play here.",
+      "D – Incorrect. Amazon S3 has provided strong read-after-write consistency by default for all requests since 2020, so there is no legacy eventual-consistency setting to enable, and this isn't the mechanism causing the described conflict exception in any case — Iceberg's own metadata commit protocol is the relevant layer."
+    ],
+    "topic": "Apache Iceberg provides ACID guarantees via optimistic concurrency control on snapshot commits: concurrent writers race to atomically swap in a new metadata pointer, and a losing writer gets a CommitFailedException and must retry against the updated table state rather than silently corrupting data. This is the mechanism that makes Iceberg safe for concurrent writers where raw Parquet-on-S3 would not be, and recognizing 'commit conflict exception, no data loss, retry succeeds' as expected behavior (rather than a bug requiring architecture changes) is a precise, hard-tier Iceberg internals distinction.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 188,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A subscription analytics company runs an 8-node Redshift RA3.4xlarge cluster serving both scheduled nightly ETL loads and ad-hoc BI dashboard queries from roughly 150 analysts. During the last two weeks of each month, dashboard query queue wait times spike badly enough that analysts routinely miss reporting deadlines, while the nightly ETL queue is unaffected. The finance team has capped additional Redshift spend at 15% above current baseline, ruling out a permanent cluster resize. The data team already has Concurrency Scaling enabled on the dashboard WLM queue but is unsure whether it is actually engaging during these spikes, and wants a cost-bounded way to confirm and control its usage, since finance has warned that any further unexplained cost growth this quarter will trigger a mandatory spend-freeze review that could delay unrelated planned projects. What should they do?",
+    "options": [
+      "Query STV_WLM_QUERY_STATE and SVCS_CONCURRENCY_SCALING_USAGE (or the equivalent system views) to confirm concurrency scaling is engaging during the spikes, and set a Concurrency Scaling usage limit (with an alert or disable action) via the console/CLI to cap the cost contribution from burst capacity while still allowing it to absorb the monthly peak.",
+      "Permanently resize the cluster to twice its current node count so it can absorb peak load without concurrency scaling at all.",
+      "Disable concurrency scaling entirely and instead ask analysts to only run dashboard queries outside the last two weeks of the month.",
+      "Move all ad-hoc dashboard queries to Amazon Athena querying the same S3 data via Redshift Spectrum's underlying files, bypassing Redshift entirely during peak periods."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Redshift concurrency scaling usage can be confirmed via system views like SVCS_CONCURRENCY_SCALING_USAGE, and Redshift supports configurable usage limits with actions (log, alert, or disable feature) specifically so a team can bound the cost contribution of burst concurrency scaling capacity while still benefiting from it during genuine peak periods — directly matching the requirement for cost-bounded verification and control.",
+      "B – Incorrect. A permanent doubling of cluster size is explicitly ruled out by the 15% spend cap, and would also mean paying for double capacity year-round to handle load that only spikes for two weeks a month — concurrency scaling exists precisely to avoid this kind of always-on overprovisioning.",
+      "C – Incorrect. Disabling concurrency scaling removes the exact mechanism designed to absorb these bursts, and restricting analysts to certain weeks is an operational workaround that doesn't solve the underlying capacity problem and would likely be unworkable for a reporting-driven team.",
+      "D – Incorrect. While Redshift Spectrum/Athena could offload some ad-hoc query load, this doesn't address whether concurrency scaling is currently working as configured, and it's a more disruptive architectural change than what's being asked — the question is specifically about verifying and cost-bounding an already-enabled feature."
+    ],
+    "topic": "Redshift Concurrency Scaling automatically adds transient burst capacity for queued read queries on WLM queues configured to use it, billed via accumulated free credits plus per-second usage beyond those credits. The exam-relevant configuration knob is the Concurrency Scaling usage limit, which lets a team cap or alert on spend from this feature specifically — the key skill being tested is knowing this exists as a targeted cost control, distinct from resizing the cluster or disabling the feature outright.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 189,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A logistics company's Redshift fact table stores 2 billion shipment events and uses shipment_id as both its distribution key and its sort key, following what the team believed was a best-practice single-column design. Query performance has degraded severely for the most common analytical query pattern, which joins this fact table against a warehouse_location dimension table on warehouse_id and filters by ship_date range. STL_ALERT_EVENT_LOG shows frequent 'large broadcast' and 'large distribution' events, and node-level disk usage is uneven, with two of the eight nodes consistently near capacity while others are underutilized, prompting an earlier (unsuccessful) attempt by the team to fix the imbalance simply by adding VACUUM and ANALYZE maintenance jobs, which improved nothing. What is the most likely design flaw and the correct fix?",
+    "options": [
+      "shipment_id as the distribution key doesn't align with the join key (warehouse_id) used in the most common query, forcing expensive data redistribution across nodes at query time, and shipment_id being highly unique also doesn't help date-range filtering; the fix is to change the distribution key to warehouse_id (aligning with the join pattern) and change the sort key to ship_date (aligning with the range filter), potentially using a compound sort key if both patterns matter.",
+      "The cluster simply needs more nodes added, since uneven disk usage always indicates insufficient total cluster capacity.",
+      "The fix is to convert the fact table's distribution style to ALL, so every node has a full copy and no redistribution is ever needed.",
+      "The problem is caused by the dimension table lacking a sort key; sort keys are only relevant on dimension tables, not fact tables, in a star schema."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Distribution key choice should align with the dominant join pattern to co-locate matching rows on the same node and avoid redistribution; here the query joins on warehouse_id, but the table is distributed by shipment_id, forcing exactly the kind of large redistribution/broadcast operations shown in the alert log. Sort key should align with the dominant filter pattern (ship_date range), not an arbitrary unique ID — compound sort keys can combine multiple filter columns if needed. This combination directly targets both the join inefficiency and the range-filter inefficiency.",
+      "B – Incorrect. Uneven disk usage here is a symptom of a skewed/misaligned distribution key concentrating certain values' rows disproportionately or causing repeated large data movement operations, not simply insufficient total capacity — adding nodes without fixing the key design would still leave the underlying inefficiency, just spread across more nodes.",
+      "C – Incorrect. Distribution style ALL replicates the entire table to every node, which is appropriate for small, frequently-joined dimension tables, not a 2-billion-row fact table — doing this for a table this large would consume enormous storage and actually make writes/updates far more expensive.",
+      "D – Incorrect. Sort keys are relevant and commonly used on large fact tables specifically to speed up range-based filtering (like date ranges); dismissing them as dimension-table-only is factually incorrect and misses the actual root cause described in the scenario."
+    ],
+    "topic": "Redshift performance design centers on aligning distribution key with the dominant join pattern (to avoid expensive cross-node data movement, visible as 'large broadcast'/'large distribution' alerts) and sort key with the dominant filter pattern (to enable range-based block skipping). Using a table's own unique ID for both, out of habit, is a common but flawed default — the exam wants you to reason from the actual query pattern (join on warehouse_id, filter on ship_date) back to the correct key choices, exactly as the deep-dive material's customer_id example illustrates for a different column.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 190,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A mobile gaming company stores player session data in a DynamoDB table with device_id as the partition key, using on-demand capacity mode. During a viral marketing campaign, a small number of celebrity-endorsed device_ids (used in shared demo kiosks) receive dramatically more read and write traffic than any other partition key value — sometimes 100x the traffic of a typical device_id — causing ProvisionedThroughputExceededException-style throttling on those specific keys even though the table's aggregate consumed capacity is well below account-level on-demand limits. The team cannot change the application's data model on short notice before the campaign ends, since the kiosk client software that generates these device_id values is embedded firmware that cannot be redeployed remotely and the campaign's marketing partnership is contractually locked to the current schedule. What is the most effective immediate mitigation?",
+    "options": [
+      "Switch the table from on-demand to provisioned capacity mode with a very high provisioned throughput, since provisioned mode doesn't have per-partition throttling.",
+      "Add a random or calculated suffix to the partition key value specifically for these known hot device_ids at write time (write sharding), spreading their traffic across multiple synthetic partition key values, with reads querying across the known shard suffixes and aggregating results.",
+      "Enable DynamoDB auto scaling, since on-demand tables automatically add unlimited partitions to absorb any single-key hot spot.",
+      "Create a Global Secondary Index on device_id to distribute the hot key's traffic across the index's separate partitions."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. Both provisioned and on-demand DynamoDB capacity modes are still subject to per-partition physical throughput limits — a single partition key value's traffic is bounded by what a single partition can serve regardless of capacity mode, so switching modes alone does not solve a true hot-key problem.",
+      "B – Correct. Write sharding — appending a random or calculated suffix to a hot partition key value so its traffic is physically distributed across multiple underlying partitions — is the standard, effective mitigation for a genuinely hot single key, and can be applied surgically to only the known problematic device_ids without redesigning the table for all other traffic.",
+      "C – Incorrect. DynamoDB's adaptive capacity and on-demand mode help absorb some traffic imbalance automatically, but they do not eliminate the fundamental physical limit of a single partition key value's traffic on one partition — a sufficiently extreme, sustained hot key (100x normal) can still throttle even with these features active.",
+      "D – Incorrect. A GSI on device_id would have the exact same partition key as the base table for that value, inheriting the identical hot-key problem on the index's own partitions — a GSI doesn't fix hotness on the underlying key value, it just relocates the same hot-key issue to a second copy of the data."
+    ],
+    "topic": "DynamoDB adaptive capacity helps smooth out moderate imbalances automatically, but a sufficiently extreme, concentrated hot key still exceeds what a single physical partition can serve — the documented mitigation for this specific failure mode is write sharding (adding a random/calculated suffix to spread a hot key's writes across synthetic partition values). The exam-pattern trigger is 'hot partition throttling on specific popular keys despite normal aggregate capacity,' and the trap distractors (switch capacity mode, add a GSI) both sound plausible but don't address the physical per-partition throughput ceiling that's the actual root cause.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 191,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A global e-commerce company uses DynamoDB Global Tables in an active-active configuration across us-east-1, eu-west-1, and ap-southeast-1 to serve a shopping cart application with low-latency local reads/writes in each region. During a flash sale, a customer in the US and a customer service representative in Singapore both update the same cart item (same partition key) within milliseconds of each other, from different regional endpoints, before the update from either region has fully propagated to the other. Neither region's application layer currently implements any explicit conflict-detection logic of its own, since the original single-region design never anticipated concurrent multi-region writes to the same cart item. Which outcome correctly describes DynamoDB Global Tables' conflict resolution behavior in this situation, and what does this imply for application design?",
+    "options": [
+      "DynamoDB Global Tables uses a 'last writer wins' conflict resolution policy based on internal timestamps, meaning one of the two concurrent writes will silently overwrite the other with no application-level error — applications with items that can be concurrently modified across regions should design for this by using conditional writes, versioning, or reconciliation logic where losing an update silently is unacceptable.",
+      "DynamoDB Global Tables automatically merges both concurrent writes field-by-field, so no data is ever lost from concurrent regional updates.",
+      "DynamoDB Global Tables blocks the second write and returns a ConditionalCheckFailedException to the application whenever a concurrent cross-region write is detected, requiring the application to retry.",
+      "DynamoDB Global Tables requires all writes to route through a single designated 'primary' region, so concurrent writes from two regions to the same item are not actually possible."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. DynamoDB Global Tables (in its active-active multi-region replication model) resolves conflicting concurrent writes to the same item using a last-writer-wins approach based on internal timestamps; there is no automatic merge and no error is raised to the losing writer's application — this is documented behavior, and applications where this is unacceptable must implement their own conflict handling (e.g., version attributes checked via conditional writes, or business-logic-level reconciliation).",
+      "B – Incorrect. Global Tables does not perform field-level or attribute-level merging of concurrent writes to the same item; the entire item write from the losing writer is superseded, not selectively merged — this is a common misconception.",
+      "C – Incorrect. Global Tables' active-active model does not block or reject concurrent regional writes with an error; both writes succeed locally in their respective regions and are asynchronously replicated, with the conflict resolved silently via last-writer-wins during replication, not via an exception returned to either caller.",
+      "D – Incorrect. Global Tables is explicitly designed to allow writes in any participating region without requiring routing through a single primary — this is its core value proposition (local low-latency reads/writes in every region) and this option describes single-region/replica architecture, not Global Tables' active-active model."
+    ],
+    "topic": "DynamoDB Global Tables' active-active replication uses last-writer-wins conflict resolution for concurrent cross-region writes to the same item, with no automatic field merging and no error surfaced to either writer — a scenario describing near-simultaneous writes to the same key from two regions is testing whether you know this specific, silent-overwrite behavior. The exam-relevant implication is architectural: applications sensitive to lost updates need their own conflict-avoidance layer (conditional writes with version numbers, or business logic), since the DynamoDB platform itself won't surface or prevent the conflict.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 192,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A financial services company runs its core transactional system on Amazon Aurora PostgreSQL in us-east-1. Following a new regulatory requirement, the company must be able to fail over to a secondary AWS region within 1 minute of a regional outage (RTO ≤ 1 minute) with no more than a few seconds of data loss (RPO in low single-digit seconds), and must also continue serving low-latency local reads to a growing base of European customers even when no failover is occurring. A junior engineer proposes simply adding cross-region read replicas using standard Aurora PostgreSQL asynchronous replication, pointing out that this would be the cheapest option and require no changes to the application's connection logic. Why is this insufficient, and what should be used instead?",
+    "options": [
+      "Standard cross-region Aurora read replicas typically replicate with several seconds to low tens of seconds of lag under normal conditions and, critically, promoting a cross-region read replica to a standalone writable primary during a regional outage is a manual, multi-step operation that will not reliably meet a 1-minute RTO — Aurora Global Database should be used instead, which is purpose-built for sub-minute managed failover (via 'Global Database managed planned/unplanned failover') with typical replication lag under 1 second, while also serving local low-latency reads in the secondary region.",
+      "Cross-region read replicas are actually sufficient for this requirement as long as Multi-AZ is also enabled on the primary cluster, since Multi-AZ replaces the need for any cross-region failover tooling.",
+      "The requirement is only achievable using DynamoDB Global Tables instead of Aurora, since only DynamoDB provides active-active multi-region writes.",
+      "Standard cross-region read replicas already provide sub-second replication lag and one-command automated regional failover, so the junior engineer's proposal is correct as stated."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Aurora Global Database is specifically designed for this use case: it uses dedicated, purpose-built storage-level replication (typically sub-second lag) across regions and provides managed failover mechanisms that can promote a secondary region to full read/write in well under a minute, which is a materially different capability from a standard cross-region read replica's asynchronous logical/physical replication and manual promotion process. Global Database's secondary region also serves local low-latency reads continuously, satisfying the European customer requirement.",
+      "B – Incorrect. Multi-AZ provides synchronous standby failover within a single region for availability against AZ-level failures; it does nothing to address a regional outage or provide cross-region replication/failover at all — it solves a different problem entirely.",
+      "C – Incorrect. While DynamoDB Global Tables does provide active-active multi-region writes, the scenario specifies the workload already runs on Aurora PostgreSQL as its transactional system; migrating the entire relational system to DynamoDB is a disproportionate architecture change when Aurora Global Database directly satisfies the stated RTO/RPO/local-read requirements without a database engine migration.",
+      "D – Incorrect. This is factually wrong — standard Aurora cross-region read replicas do not offer sub-second guaranteed lag under all conditions, and promoting a read replica to a writable primary is not a fully automated, sub-minute one-command operation in the way Global Database's managed failover is designed to be."
+    ],
+    "topic": "Aurora Global Database and standard cross-region read replicas solve related but distinctly different problems: Global Database uses dedicated low-lag storage-level replication (typically sub-second) plus managed failover specifically engineered for aggressive cross-region RTO/RPO targets, while ordinary cross-region read replicas use standard replication with materially higher lag and a manual, slower promotion process. The exam-pattern trigger is a tight numeric RTO/RPO target combined with 'cross-region' and 'local reads in a second region' — that combination points specifically to Aurora Global Database, not generic read replicas or an unrelated Multi-AZ feature.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 193,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A ticketing platform runs event-driven order processing where a burst of Lambda functions (scaling from near-zero to several thousand concurrent executions within seconds during a popular on-sale event) each open a short-lived connection to an Aurora PostgreSQL Serverless v2 database to record purchases. During the on-sale spike, the database frequently hits 'too many connections' errors even though Aurora Serverless v2's ACU capacity appears to scale up in time, and purchases fail. Between on-sale events, traffic is very low and the team wants to avoid paying for idle fixed capacity, since the original motivation for choosing Aurora Serverless v2 over a standard provisioned instance was precisely to avoid paying for capacity that sits mostly idle 350 days a year. What combination of changes addresses the connection failures without abandoning serverless scaling?",
+    "options": [
+      "Increase the Aurora Serverless v2 maximum ACU setting further, since more compute capacity always corresponds to proportionally more available connections.",
+      "Introduce RDS Proxy in front of the Aurora Serverless v2 database so Lambda functions connect to the proxy's pooled connections instead of opening a new direct database connection per invocation, decoupling the burst of Lambda concurrency from the database's actual connection limit.",
+      "Switch every Lambda function to use provisioned concurrency, since provisioned concurrency eliminates the connection overhead entirely.",
+      "Switch from Aurora Serverless v2 to standard provisioned Aurora with a fixed large instance size that is always running at maximum capacity."
+    ],
+    "answer": 1,
+    "explanations": [
+      "A – Incorrect. While higher ACU does increase the underlying instance's connection capacity somewhat, database max-connections limits do not scale linearly and unboundedly with ACU in a way that comfortably absorbs thousands of simultaneous new direct connections from a Lambda burst — the fundamental mismatch between 'one connection per short-lived Lambda invocation' and a finite database connection ceiling remains.",
+      "B – Correct. RDS Proxy is purpose-built for exactly this pattern: it maintains a pool of warm database connections and multiplexes many client connections (from bursty, highly concurrent Lambda invocations) over a much smaller number of actual backend database connections, directly solving the 'too many connections' failure mode without requiring the database itself to somehow support one connection per Lambda invocation.",
+      "C – Incorrect. Provisioned concurrency addresses Lambda cold-start latency by keeping execution environments warm; it does not change how many distinct database connections those warm environments open, and each invocation would still typically open its own direct connection, so the connection exhaustion problem remains.",
+      "D – Incorrect. Moving to a fixed, always-on maximum-size instance abandons the stated goal of avoiding idle capacity cost between events, and even a large fixed instance still has a finite max-connections limit that a sufficiently large burst of direct Lambda connections could still exceed without pooling."
+    ],
+    "topic": "This is the textbook 'Lambda + relational database connection exhaustion' pattern: a burst of concurrent Lambda invocations each opening a direct database connection quickly exceeds any database's finite connection ceiling, regardless of compute capacity scaling. RDS Proxy is the specific, purpose-built fix — it pools and multiplexes connections so a spike in Lambda concurrency doesn't translate 1:1 into a spike in backend database connections — and it preserves Aurora Serverless v2's cost-efficient scale-to-near-zero behavior between events, which a fixed-capacity instance would sacrifice.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 194,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A data lake team has run daily upsert jobs against an Apache Iceberg table for two years, and the table now has over 40,000 accumulated snapshots with no automated cleanup ever configured. Query planning time for even simple queries against this table has grown to over a minute, separate from actual data scan time, and the underlying S3 prefix has also accumulated a large volume of orphaned data files left behind by failed or superseded write operations that are no longer referenced by any live snapshot. The team needs to reduce both query planning overhead and storage cost without losing the ability to time-travel to snapshots from the last 30 days for audit purposes, since the compliance team relies on that 30-day window to investigate discrepancies flagged by an automated reconciliation process that runs on a rolling basis. What should they implement?",
+    "options": [
+      "Run Iceberg's expire_snapshots procedure on a schedule to remove snapshots older than a defined retention window (e.g., 30 days) — which also allows orphaned data files no longer referenced by any retained snapshot to be identified for removal — combined with a separate remove_orphan_files procedure to clean up files left by failed/incomplete writes, run periodically as ongoing table maintenance.",
+      "Delete the underlying Parquet files directly from S3 using the AWS CLI for any file older than 30 days, since Iceberg tables are just folders of Parquet files under the hood.",
+      "Recreate the table from scratch weekly, reloading all historical data, since this is the only way to reset accumulated snapshot metadata.",
+      "Disable time travel entirely on the table, since maintaining any snapshot history is fundamentally incompatible with good query performance at this scale."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Iceberg's expire_snapshots procedure is the purpose-built maintenance operation for pruning old snapshot metadata down to a defined retention window, directly reducing the metadata volume that query planning must traverse (fixing the planning-time problem) while preserving snapshots within the 30-day audit window; remove_orphan_files is the separate, purpose-built procedure for cleaning up files that exist in storage but aren't referenced by any retained snapshot (e.g., from failed writes), addressing the storage-cost problem. Both are standard, documented Iceberg table maintenance operations meant to be run regularly.",
+      "B – Incorrect. Manually deleting underlying Parquet files via the S3 CLI without going through Iceberg's own snapshot/metadata-aware procedures is dangerous — it can delete files that are still referenced by a retained snapshot (corrupting the table and breaking time travel or even current-state reads), since Iceberg's metadata layer, not simple file age, determines what's safely removable.",
+      "C – Incorrect. Recreating the entire table weekly is a drastic, expensive, and operationally risky approach compared to using Iceberg's built-in incremental maintenance procedures, and it doesn't preserve the specific 30-day time-travel requirement in a clean, intentional way.",
+      "D – Incorrect. Disabling time travel isn't necessary or requested — the requirement explicitly asks to keep 30 days of time-travel capability while fixing the performance/cost problem, and Iceberg's snapshot expiration is designed to let you keep a bounded window of history rather than forcing an all-or-nothing choice."
+    ],
+    "topic": "Apache Iceberg table maintenance at scale requires ongoing operational procedures, not one-time fixes: expire_snapshots prunes old snapshot metadata to control both query planning overhead (less metadata to traverse) and enables eventual physical cleanup, while remove_orphan_files separately handles files orphaned by failed or superseded writes that no snapshot references. The exam-pattern trigger — 'query planning is slow, storage cost is high, but we still need recent time travel' — points to configuring these two maintenance procedures with an appropriate retention window, not manual file manipulation or disabling the feature that's actually needed.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 195,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A retail data platform team manages an Apache Iceberg table for order records. Six months ago, a column named customer_ref was dropped and, a few weeks later, a new column also named customer_ref was added for an unrelated purpose (a different data type, storing a fulfillment center reference). Downstream analysts recently discovered that a query filtering on customer_ref against historical time-travel snapshots from before the rename occasionally returns confusing, seemingly incorrect matches, and one analyst has already escalated this to the platform team as a suspected data-corruption incident, requesting that the table be frozen from further writes pending investigation. What Iceberg mechanism explains why this specific problem does NOT actually corrupt data, and what is the recommended practice to avoid this kind of confusion going forward?",
+    "options": [
+      "Iceberg tracks columns internally by a unique field ID, not by name, so the old dropped customer_ref (field ID, say, 12) and the new customer_ref (field ID, say, 47) are never actually confused at the storage/metadata level even though they share a display name; the confusing query results are a naming/human-readability problem, not a data-integrity problem, and the recommended practice is to use distinct, non-reused column names when repurposing a dropped column's name for an unrelated field.",
+      "This indicates a genuine Iceberg bug where dropped column data can leak into a same-named new column, and the team should avoid ever dropping columns from Iceberg tables.",
+      "Iceberg tracks columns by name only, meaning the new customer_ref column is silently populated with old historical values from the original dropped column, which is the actual cause of the confusing results.",
+      "This is expected because Iceberg does not support dropping columns at all, so 'customer_ref' was never actually dropped, only hidden from new queries."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Iceberg's schema evolution model assigns every column a permanent, unique field ID at creation time, independent of its display name; dropping a column doesn't reuse its field ID, and adding a new column (even with a reused name) gets a fresh field ID. This is precisely why schema evolution in Iceberg is safe from a data-corruption standpoint — old data files are still correctly associated with their original field IDs. The confusing analyst experience is purely a human-readability issue from name reuse, and the standard practice is avoiding reusing dropped column names for unrelated new columns.",
+      "B – Incorrect. This is not a bug — Iceberg's field-ID-based schema tracking is specifically designed to make operations like drop-then-add-with-same-name safe at the data level; recommending teams never drop columns overstates the risk and ignores that this is one of Iceberg's core, intended safe-evolution capabilities.",
+      "C – Incorrect. This is factually wrong for Iceberg — tracking by name only (as some naive Parquet-on-S3-without-a-table-format approaches effectively do) is exactly the failure mode Iceberg's field-ID system was built to prevent; Iceberg does not silently mix data between a dropped and a newly-added same-named column.",
+      "D – Incorrect. Iceberg does support genuinely dropping columns as part of its schema evolution feature set (add, rename, drop, reorder, and certain type-widening changes are all supported); this option mischaracterizes the feature as merely hiding a column, which isn't accurate."
+    ],
+    "topic": "Iceberg's schema evolution safety comes from tracking columns by a permanent internal field ID rather than by name, which is what allows add/rename/drop operations to be performed without rewriting or risking corruption of existing data files. A hard-tier trap here is a scenario that looks like a data-integrity bug (confusing same-named-but-different column results) but is actually just a human-facing naming collision layered on top of a mechanism that is, underneath, perfectly safe — the exam wants you to distinguish the two and know the practical mitigation (avoid reusing dropped names) rather than distrusting the Iceberg mechanism itself.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 196,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A healthcare data platform's central Lake Formation-governed lake in Account A contains a patient_encounters table with columns including diagnosis_code, physician_notes, ssn, and state. Two consuming accounts need access: Account B (a research partner) should see all rows and all columns except ssn and physician_notes; Account C (a state health department) should see all columns except ssn, but only rows where state equals their specific state. Both grants must be enforced centrally without duplicating the underlying data or writing custom filtering ETL per consumer, since the platform team is already stretched thin supporting a dozen other cross-account sharing requests and cannot take on more custom per-consumer pipelines. What Lake Formation capability satisfies both requirements simultaneously?",
+    "options": [
+      "Lake Formation column-level permissions for Account B (excluding ssn and physician_notes) and a Lake Formation data filter combining column-level exclusion (excluding ssn) with a row-level predicate (state = their state) for Account C, both granted via Lake Formation cross-account sharing (Resource Links / LF-Tags) against the single underlying table.",
+      "Create two separate physical copies of the table, one pre-filtered for Account B and one pre-filtered for Account C, using scheduled Glue jobs to keep each copy in sync with the source.",
+      "Grant both accounts full unrestricted access to the table and rely on each consuming account's own IAM policies to restrict which columns and rows their analysts can see.",
+      "Use S3 bucket policies scoped to each consuming account's IAM role to control access, since Lake Formation only supports table-level, not column- or row-level, permissions."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Lake Formation supports both column-level permissions (excluding specific sensitive columns per grantee) and data filters (which combine column-level and row-level restrictions into a single named filter object) applied to cross-account grants without moving or duplicating data — Account B's requirement is a pure column exclusion, while Account C's requirement (column exclusion plus a row-level predicate) is precisely what a Lake Formation data filter is designed to express, all enforced centrally at query time against the one underlying table.",
+      "B – Incorrect. Physically duplicating data into per-consumer filtered copies requires ongoing ETL, introduces data staleness and consistency risk between copies, and directly contradicts the requirement to avoid duplicating the underlying data — Lake Formation's declarative filtering exists specifically to avoid this pattern.",
+      "C – Incorrect. Relying on each consuming account's own IAM policies for column/row filtering is not a technically enforceable pattern for fine-grained data access in this architecture, since IAM alone doesn't understand table column or row semantics, and this also fails to centrally enforce the restriction from the data owner's side as required.",
+      "D – Incorrect. This is factually wrong — Lake Formation explicitly supports column-level permissions and row-level/cell-level filtering via data filters, in addition to table-level grants; S3 bucket policies operate at the object/prefix level and cannot express column or row semantics at all."
+    ],
+    "topic": "Lake Formation data filters are the mechanism for combining column-level exclusions with row-level predicates into one named, reusable, centrally-managed grant object, applicable across accounts via Resource Links without moving or copying the underlying data. This directly extends the simpler 'hide SSN/email columns' pattern into a more complex combined column-plus-row scenario across two different consumers with different requirements — recognizing data filters (versus separate physical copies or bolting access control onto IAM/S3) is the key hard-tier distinction.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 197,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A large enterprise's Lake Formation-governed data lake has grown to over 800 tables across 60 databases, spanning marketing, finance, supply chain, and HR domains. The governance team currently grants access using individual named-resource permissions (grant on specific table X to specific principal Y), and onboarding a new analyst who needs access to 'all finance domain tables tagged as internal-use' now requires manually identifying and granting dozens of individual table permissions, which is error-prone and slow to keep current as new finance tables are added. What Lake Formation capability should replace this approach to make access scale with organizational structure rather than per-table grants?",
+    "options": [
+      "Lake Formation tag-based access control (LF-TBAC): assign LF-Tags (e.g., domain=finance, classification=internal-use) to databases/tables, and grant principals access based on LF-Tag expressions rather than individual resource names, so new tables tagged appropriately are automatically covered by existing grants without additional manual permissioning.",
+      "Create one enormous IAM policy per department that lists every table ARN belonging to that department, updated manually whenever a table is added.",
+      "Use Glue crawler classifiers to automatically infer which department owns each table based on naming conventions, and grant access purely based on crawler-inferred department names.",
+      "Migrate all data into department-specific AWS accounts so IAM account boundaries alone provide the necessary isolation, eliminating the need for Lake Formation permissions entirely."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. LF-TBAC is specifically designed for this scale problem: instead of granting access resource-by-resource, tags are attached to databases/tables (and can be inherited/applied broadly), and grants are expressed as tag-expression-based policies (e.g., 'domain=finance AND classification=internal-use'). Any table later tagged to match an existing expression is automatically covered, which is exactly the 'new finance tables should be automatically covered without manual re-granting' requirement.",
+      "B – Incorrect. A manually maintained IAM policy enumerating every table ARN per department has the same fundamental scaling problem as named-resource Lake Formation grants — it doesn't automatically extend to new tables and requires the same error-prone manual upkeep the team is trying to eliminate.",
+      "C – Incorrect. Glue crawler classifiers infer schema and format from data content, not organizational ownership or access-control metadata; there's no built-in mechanism for crawlers to determine 'which department owns this table' or to drive Lake Formation permission grants from that inference.",
+      "D – Incorrect. Splitting into per-department AWS accounts is a drastic architectural restructuring, not a targeted fix for a permissions-management scaling problem, and it doesn't address the actual pain point (efficiently granting fine-grained access as new tables appear) — it also abandons the benefits of a Lake Formation-governed central lake pattern in the first place."
+    ],
+    "topic": "Lake Formation Tag-Based Access Control (LF-TBAC) decouples permission grants from individual resource identity by using attribute tags (LF-Tags) on databases/tables and expressing grants as tag-expression policies — this is the direct answer whenever a scenario describes a governance team struggling to keep per-table grants current as the number of tables grows, or wanting access to automatically extend to new resources matching a pattern. It's the Lake Formation analog of attribute-based access control (ABAC) versus resource-by-resource ACLs.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 198,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A legal research company is building a retrieval-augmented generation system over 8 million legal document chunks, storing embeddings in an Aurora PostgreSQL database with the pgvector extension. The product requirement is sub-100ms p99 query latency for similarity search, the dataset comfortably fits in the chosen Aurora instance's memory once indexed, and the team needs the highest achievable search accuracy since incorrect legal citations returned to users carry real liability risk. A cost-conscious engineer proposes IVF indexing to minimize index build time and memory footprint, since nightly re-indexing after document updates is otherwise slow, and points to a blog post benchmarking IVF as 'good enough' for a different company's much less liability-sensitive product-recommendation use case. Is IVF or HNSW the better choice here, and why?",
+    "options": [
+      "HNSW is the better choice: the workload prioritizes query latency and especially search accuracy over index build time and memory efficiency, and the dataset comfortably fits in memory — HNSW's multi-layer graph structure is specifically suited to fast, high-accuracy approximate nearest-neighbor search under these conditions, at the accepted cost of slower index builds and higher memory use.",
+      "IVF is the better choice: since the engineer's primary stated concern is minimizing nightly re-indexing time and memory footprint, and those are IVF's core strengths, IVF should be preferred regardless of the accuracy and latency requirements.",
+      "Neither index type matters for pgvector performance; the only real lever for both latency and accuracy is the Aurora instance's compute size, so the indexing question is a red herring.",
+      "IVF and HNSW produce identical accuracy and latency characteristics on Aurora PostgreSQL specifically, so the choice should be made purely on build-time cost."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. The scenario's dominant constraints are accuracy (liability-sensitive legal citations) and low query latency (sub-100ms p99), with memory not actually being a binding constraint since the dataset fits comfortably in memory — this is exactly the profile where HNSW's tradeoffs (higher memory/build time in exchange for faster, more accurate approximate search) are the right fit, and the cost-conscious engineer's proposal optimizes for the wrong axis given the stated priorities.",
+      "B – Incorrect. While IVF does minimize build time and memory footprint, the scenario explicitly prioritizes accuracy and latency above build-time/memory concerns (liability risk from incorrect results, and a hard sub-100ms SLA) — picking IVF here would optimize for a secondary concern at the direct expense of the primary stated requirements.",
+      "C – Incorrect. Index type is a well-established, real factor in vector search performance and accuracy characteristics independent of raw compute size; dismissing the indexing decision as irrelevant misunderstands how approximate nearest-neighbor search algorithms trade off recall, latency, and resource usage.",
+      "D – Incorrect. HNSW and IVF have materially different, well-documented performance/accuracy tradeoff profiles (graph-based vs. cluster-partition-based search); claiming they're identical on any specific database platform is inaccurate."
+    ],
+    "topic": "HNSW and IVF represent a genuine tradeoff along accuracy/latency versus build-time/memory-efficiency axes for approximate nearest-neighbor vector search. The exam wants you to correctly weigh a scenario's stated priorities against that tradeoff rather than defaulting to whichever index sounds more 'efficient' — here, a liability-sensitive accuracy requirement plus a tight latency SLA, combined with memory not actually being constrained, clearly favors HNSW even though a distractor frames IVF's build-time savings as attractive.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 199,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A subscription analytics company's Redshift data warehouse needs to combine three kinds of data in a single dashboard query: hot, frequently-updated 30-day rolling metrics already loaded in Redshift tables; 3 years of historical 'cold' clickstream data sitting as Parquet files in S3 that is queried only occasionally and would be wasteful to fully load into the cluster; and a small, slowly-changing product catalog table that currently lives in an operational Aurora PostgreSQL database and would introduce ETL latency and duplication if copied into Redshift on a schedule. Additionally, the historical S3 query pattern repeats an identical expensive aggregation multiple times per day with unchanged underlying data, and a previous attempt to speed this up by simply scheduling the aggregation as a nightly batch job into a Redshift table was rejected because stakeholders need the ability to run it on demand with arbitrary date ranges, not just a fixed nightly snapshot. Which combination of Redshift features addresses all three needs efficiently?",
+    "options": [
+      "Redshift Spectrum to query the cold S3 clickstream data directly without loading it, a Redshift federated query to read the product catalog live from Aurora PostgreSQL without duplicating it, and a materialized view over the repeated expensive S3 aggregation so it's computed once and served from cache on subsequent identical queries.",
+      "Load all three data sources into Redshift native tables nightly via COPY, since Redshift always performs best when everything lives natively in cluster storage regardless of access pattern.",
+      "Use Redshift Spectrum for all three needs, including the live product catalog data, since Spectrum can query any external data source including live operational databases.",
+      "Use AWS DMS to continuously replicate both the S3 clickstream files and the Aurora product catalog into Redshift native tables, avoiding the need for Spectrum or federated queries entirely."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Each of the three needs maps to a distinct, purpose-built Redshift capability: Redshift Spectrum queries S3 data directly without loading it (ideal for infrequently-accessed cold historical data), federated queries let Redshift read live data from RDS/Aurora without an ETL/duplication step (ideal for a small operational table needing freshness without staleness), and materialized views cache the result of a repeated expensive query for fast reads on subsequent identical calls, refreshed as needed rather than recomputed every time — combining all three directly addresses each stated requirement efficiently.",
+      "B – Incorrect. Loading 3 years of rarely-queried cold clickstream data into cluster storage wastes expensive Redshift compute-attached storage on data that's accessed occasionally, and nightly-syncing the product catalog reintroduces exactly the ETL latency and duplication the scenario says should be avoided — this contradicts the stated goals.",
+      "C – Incorrect. Redshift Spectrum queries external tables registered against data in S3 (via the Glue Data Catalog); it is not designed to directly query a live relational database like Aurora PostgreSQL — that capability is what federated queries specifically provide, and conflating the two is a factual error.",
+      "D – Incorrect. Continuously replicating S3 files into Redshift native tables via DMS is not DMS's intended pattern (DMS targets database engines, not arbitrary S3 file querying/replication in this way), and doing so for the cold data defeats the cost/storage benefit of querying it in place via Spectrum, while also reintroducing the duplication problem for the catalog data."
+    ],
+    "topic": "This question stacks three distinct 'query without moving/duplicating data' Redshift capabilities that the exam tests as separate, precise tools: Redshift Spectrum for querying S3 data in place, federated queries for reading a live external database without ETL, and materialized views for caching repeated expensive computation. A hard-tier scenario combining all three in one dashboard requirement is testing whether you can correctly assign each sub-requirement to its matching feature rather than reaching for one tool (like brute-force loading everything) to solve all three.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 200,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A data engineering team currently self-manages Apache Iceberg tables on general-purpose S3 buckets, cataloged in the AWS Glue Data Catalog, and has built custom Lambda-triggered maintenance jobs to periodically run expire_snapshots and compaction. The team is spending significant engineering time keeping these maintenance jobs reliable, and a newly available option is Amazon S3 Tables, AWS's managed Iceberg implementation. Before migrating, the team wants to understand precisely what operational responsibility shifts to AWS versus what stays the same, since some downstream Athena and Redshift Spectrum queries depend on specific self-managed compaction scheduling behavior, and the on-call rotation has logged three separate pages in the last quarter alone for failed or stuck Lambda maintenance runs that had to be manually re-triggered. Which statement accurately describes the tradeoff?",
+    "options": [
+      "S3 Tables provides a managed Iceberg implementation with automatic table maintenance (including compaction and snapshot management) handled by AWS, removing the need for the team's custom Lambda maintenance jobs, while the table remains queryable through the same Iceberg-compatible engines (Athena, Redshift Spectrum, EMR) via integration with the Glue Data Catalog — the tradeoff is reduced operational burden in exchange for less direct control over the exact maintenance scheduling/parameters compared to fully self-managed jobs.",
+      "S3 Tables is a completely different, incompatible table format from Apache Iceberg, so migrating would require rewriting all downstream Athena and Redshift Spectrum queries from scratch.",
+      "S3 Tables only provides storage cost reduction and has no effect on table maintenance operations, so the team's custom Lambda maintenance jobs would still be required unchanged.",
+      "S3 Tables requires abandoning the Glue Data Catalog entirely and cannot be queried by Athena or Redshift Spectrum, only by a proprietary S3 Tables query API."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Amazon S3 Tables is AWS's managed implementation of the Iceberg open table format, specifically designed to remove the operational overhead of self-managing maintenance operations like compaction and snapshot expiration — it integrates with the Glue Data Catalog and remains queryable by standard Iceberg-aware engines. The real tradeoff being tested is operational simplicity versus fine-grained control, not a change in underlying table format or query compatibility.",
+      "B – Incorrect. S3 Tables implements the Iceberg format itself rather than being an incompatible proprietary format; it's designed for compatibility with the broader Iceberg ecosystem, not a rewrite-everything migration.",
+      "C – Incorrect. Automatic table maintenance (compaction, snapshot management) is one of S3 Tables' core stated benefits, specifically intended to remove the need for the kind of custom self-managed maintenance jobs described — this option understates its actual functionality.",
+      "D – Incorrect. S3 Tables integrates with the Glue Data Catalog and is designed to be queryable by standard analytics engines like Athena and Redshift Spectrum, not restricted to some separate proprietary-only API — this mischaracterizes its integration model."
+    ],
+    "topic": "Amazon S3 Tables is AWS's managed Iceberg implementation, purpose-built to remove the self-management burden (compaction, snapshot expiration, general table maintenance) that comes with running Iceberg on general-purpose S3 buckets with custom jobs. The exam wants you to recognize this as a genuine operational-overhead tradeoff (less custom maintenance code to maintain, less granular control) rather than a fundamentally different or incompatible technology — a distinction relevant whenever a scenario emphasizes engineering time spent maintaining self-managed Iceberg infrastructure.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 201,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A financial trading platform needs a data store for a real-time risk-limit lookup service: sub-millisecond read latency is required on the hot path (checking a trader's current exposure before allowing a new order), the data must survive an instance or AZ failure without being lost or reverting to stale values (a plain cache that loses state on restart is explicitly unacceptable per the risk team), and write volume is moderate but read volume is extremely high and latency-sensitive. A colleague suggests ElastiCache for Redis since it's the fastest option the team has used before, noting that the trading application's existing session-cache layer already runs on ElastiCache without issue. Why is this the wrong choice here, and what should be used instead?",
+    "options": [
+      "ElastiCache for Redis (in its typical caching configuration) does not guarantee durability — data can be lost on node failure/restart, and it is fundamentally intended as a cache layer in front of a system of record, not as the durable primary store the risk team requires; Amazon MemoryDB for Redis should be used instead, since it provides the same Redis-compatible sub-millisecond performance while being architected as a durable primary data store with multi-AZ transaction log persistence.",
+      "ElastiCache for Redis is actually fully durable by default and the colleague's suggestion is correct as-is; no change is needed.",
+      "DynamoDB with DAX should be used instead, since DAX alone (without the underlying DynamoDB table) provides both sub-millisecond latency and full durability.",
+      "Amazon RDS for PostgreSQL with read replicas should be used instead, since relational databases are inherently more durable than any in-memory data store regardless of configuration."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. ElastiCache for Redis is designed and typically positioned as a cache — even with some persistence options, it isn't architected as a durable system of record, and the risk team's requirement explicitly rules out any solution where data can be lost on restart. MemoryDB for Redis is purpose-built for exactly this profile: Redis-compatible, sub-millisecond performance, but backed by a durable, multi-AZ transaction log so it can serve as the actual primary data store rather than a cache in front of one.",
+      "B – Incorrect. This is factually wrong for the intended use case here — while ElastiCache has optional persistence features, it is not positioned or generally relied upon as a durable primary data store the way MemoryDB explicitly is; using it as the sole system of record contradicts the risk team's stated durability requirement.",
+      "C – Incorrect. DAX is an in-memory caching layer specifically for DynamoDB and requires an underlying DynamoDB table as the actual system of record — DAX itself is not usable standalone as a durable primary store, so this option misdescribes how DAX works.",
+      "D – Incorrect. While RDS/PostgreSQL is durable, it cannot realistically meet a sub-millisecond read latency requirement under the described high-read-volume, latency-sensitive hot-path workload — relational databases at any scale don't match in-memory key/value stores for this specific latency profile, so durability alone doesn't make it the right fit."
+    ],
+    "topic": "This tests the specific distinction the exam names directly: MemoryDB for Redis is chosen precisely when a scenario needs both extremely fast, sub-millisecond key/value access AND durability (survives a restart) as a genuine primary data store — while plain ElastiCache is 'just a cache' where data can be lost. The trap is a colleague defaulting to familiar tooling (ElastiCache) without checking the durability requirement, and a plausible-sounding but structurally wrong DAX-without-DynamoDB distractor that misunderstands DAX's dependency on an underlying table.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 202,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "An ad-tech company loads 3 TB of clickstream Parquet data into Redshift nightly via a single COPY command pointed at an S3 prefix containing roughly 40 large files (each 5-8 GB). The load currently takes over 4 hours and is the primary reason the morning reporting SLA is frequently missed, even though the 8-node RA3 cluster shows CPU and network utilization well below capacity during the load. The Parquet files are already reasonably well compressed, and the team's first troubleshooting step — checking for table-level locks blocking the COPY — turned up nothing, since this is a single load into an otherwise-idle table with no concurrent writers. What is the most likely reason the load isn't fully utilizing cluster capacity, and what should be changed?",
+    "options": [
+      "COPY parallelizes ingestion across the cluster's slices, with each file processed by only one slice — with just 40 large files and (for example) 128 total slices across 8 RA3.4xlarge nodes, most slices sit idle during the load; splitting the source files into a number of files that is an even multiple of the total slice count (while keeping individual file sizes reasonable) allows COPY to fully parallelize and use all available cluster capacity.",
+      "The load is slow because the files are in Parquet format; converting them to CSV before loading will make COPY dramatically faster since CSV requires no decompression.",
+      "The cluster needs to be resized to more nodes, since low CPU utilization during a load always indicates insufficient total cluster capacity.",
+      "COPY performance is entirely determined by network bandwidth to S3 and cannot be improved through file count or file organization changes."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Redshift's COPY command parallelizes by assigning individual source files to individual cluster slices; if the number of source files is much lower than the total number of slices in the cluster, many slices simply have no file to process and sit idle regardless of overall cluster size — the documented fix is ensuring the file count is an even multiple of the slice count (and files are reasonably sized, not too large or too small) so COPY can fully parallelize across all available compute.",
+      "B – Incorrect. Parquet is a well-supported, efficient COPY source format, and converting to CSV would generally increase (not decrease) the volume of data to transfer/parse since CSV lacks Parquet's columnar compression — this doesn't address the actual root cause, which is file-count-driven parallelism, not format.",
+      "C – Incorrect. Low CPU/network utilization during the load combined with a known, documented COPY parallelism mechanism (one file per slice) points specifically to a file-count mismatch, not insufficient total capacity — adding more nodes without changing file count would simply create even more idle slices, not solve the underlying problem.",
+      "D – Incorrect. This is factually wrong — Redshift COPY performance is well-documented to depend significantly on file count and organization relative to cluster slice count, which is precisely the lever being tested in this question, not solely raw network throughput."
+    ],
+    "topic": "Redshift COPY's parallel load mechanism assigns each source file to exactly one cluster slice, so a small number of large files fundamentally caps parallelism regardless of cluster size — a scenario showing low CPU/network utilization during a slow load, combined with 'few large files,' is the exam's signature for this specific COPY-tuning gotcha. The fix is matching (or exceeding, as an even multiple of) the file count to the total slice count across the cluster, distinct from generic advice like 'add nodes' or format conversion, neither of which addresses the actual parallelism bottleneck.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 203,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A healthcare data platform operating under strict data-residency regulation must ensure its S3-based data lake in us-east-1 can recover from a full regional outage with an RPO of 15 minutes and an RTO of 4 hours, while a separate compliance mandate prohibits any patient data from being durably stored outside the United States at any point, even in a DR copy. The team currently has S3 Versioning enabled but no cross-region replication configured, and lifecycle rules transition objects to Glacier Deep Archive after 180 days. A previous DR proposal was rejected by the compliance officer specifically because it involved a European replication target chosen purely for its lower per-GB storage pricing, without anyone first checking the residency rules. What DR architecture satisfies both the recovery objectives and the data-residency constraint?",
+    "options": [
+      "Configure S3 Cross-Region Replication (CRR) from the us-east-1 bucket to a second bucket in us-west-2 (both within the United States), with replication time control (RTC) enabled to provide a predictable replication SLA that supports the 15-minute RPO target, while keeping both the primary and DR copy entirely within US regions to satisfy data residency.",
+      "Configure Cross-Region Replication to a bucket in eu-west-1 for geographic diversity, since disaster recovery copies are always exempt from data-residency rules.",
+      "Rely solely on S3 Versioning within us-east-1 without any cross-region replication, since versioning alone is sufficient to recover from a full regional outage.",
+      "Use S3 Same-Region Replication (SRR) to a second bucket within us-east-1, since same-region replication provides equivalent regional-outage protection to cross-region replication."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Cross-Region Replication between two US-based regions (us-east-1 to us-west-2) satisfies the 'never leave the US' data-residency constraint while still providing genuine geographic separation for regional-outage recovery; S3 Replication Time Control adds a predictable replication SLA (minutes, well within the 15-minute RPO), directly matching both stated requirements without violating the compliance mandate.",
+      "B – Incorrect. Replicating to eu-west-1 would durably store patient data outside the United States, directly violating the explicit data-residency compliance mandate — DR copies are not exempt from this requirement as stated in the scenario, this is a common but incorrect assumption.",
+      "C – Incorrect. S3 Versioning protects against accidental overwrite/deletion within a single region and bucket; it provides no protection at all against a full regional outage, since a regional outage affects all data within that region regardless of version history — this does not meet the RTO/RPO requirement for a regional failure scenario.",
+      "D – Incorrect. Same-Region Replication keeps both copies within the same AWS region, which does not provide protection against a full regional outage — if us-east-1 experiences a regional-level outage, both the primary and the SRR-replicated copy are affected, failing to meet the disaster recovery objective."
+    ],
+    "topic": "This combines two exam-relevant Domain 2 lifecycle/DR concepts under a compliance constraint: Cross-Region Replication is required (not Same-Region Replication) to actually protect against a full regional outage, and Replication Time Control gives a predictable SLA suitable for a specific numeric RPO target — but the region choice for the DR copy must itself respect a data-residency requirement, ruling out an otherwise-plausible cross-region option that happens to leave the country. The exam pattern is stacking a technically-correct-sounding distractor (SRR, or CRR to any other region) against one specific disqualifying constraint buried in the scenario.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 204,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A logistics company's Glue Data Catalog table for shipment events has grown to over 150,000 partitions (partitioned by year/month/day/hour/warehouse_id), accumulated over several years of hourly ingestion across hundreds of warehouses. Athena queries against this table, even ones with a narrow date-range WHERE clause, have become extremely slow to even begin executing, and the team has also noticed their Glue crawler now takes over 3 hours to complete a full run, driving up both query latency and crawler cost. The team cannot reduce the actual partition granularity because downstream consumers depend on hourly, per-warehouse partitioning, and a proposal to consolidate partitions was already vetoed by the warehouse operations team, whose per-site dashboards rely on being able to filter to a single warehouse's hourly data efficiently. What should they do to address both symptoms?",
+    "options": [
+      "Enable partition indexes on the Glue table (to speed up partition pruning/lookup for Athena's query planning) and switch from full crawler re-scans to targeted, incremental partition registration (e.g., via the Glue API or an event-driven mechanism triggered per new batch) instead of a full crawler run on the entire dataset.",
+      "Reduce partition cardinality by removing the warehouse_id partition column, consolidating all warehouses into shared date-only partitions, since fewer partitions always means better performance regardless of downstream query patterns.",
+      "Migrate the table off the Glue Data Catalog entirely and have Athena read the S3 prefix directly without a catalog, since catalogs are the source of the slowdown at this partition count.",
+      "Increase the number of Glue DPUs allocated to the crawler, since crawler slowness is always a compute capacity problem rather than a scanning-scope problem."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Glue partition indexes are specifically designed to speed up partition pruning at query-planning time for tables with very high partition counts, directly addressing slow Athena query starts even with a narrow filter; separately, switching the crawler workflow from full re-scans to targeted/incremental partition registration (avoiding a full re-scan of already-known partitions) is the documented approach for minimizing crawler time/cost on a huge, frequently-updated table — together these directly address both stated symptoms without changing partition granularity.",
+      "B – Incorrect. The scenario explicitly states partition granularity cannot be reduced because downstream consumers depend on it; proposing to remove the warehouse_id partition violates this hard constraint regardless of any performance benefit it might otherwise offer.",
+      "C – Incorrect. Athena fundamentally relies on the Glue Data Catalog (or a Hive metastore) to resolve table schema, location, and partition metadata — it does not have a supported catalog-free mode for structured partitioned table queries in this way, and this doesn't match how Athena's architecture works.",
+      "D – Incorrect. Crawler run time and cost on a very large, existing dataset with well-established schema is overwhelmingly a scanning-scope problem (re-scanning what's already fully known) rather than a raw compute-capacity problem — adding DPUs to a full re-scan increases parallelism somewhat but doesn't eliminate the fundamental inefficiency of repeatedly re-crawling already-catalogued partitions."
+    ],
+    "topic": "At very high partition counts, two separate mechanisms matter: Glue partition indexes speed up the Data Catalog's partition-pruning lookups used during Athena query planning (directly targeting slow query starts even with a narrow filter), and switching from full crawler re-scans to targeted/incremental partition registration avoids the cost/time of re-scanning a huge, already-catalogued dataset just to pick up new partitions. The exam-pattern trigger is 'huge partition count, both query planning and crawler time are the complaint, cannot reduce granularity' — pointing to these two specific catalog-scale features rather than a compute-scaling or catalog-removal non-solution.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
+    "id": 205,
+    "domain": 2,
+    "difficulty": "hard",
+    "question": "A retail analytics company runs a Redshift cluster shared by two very different workloads on the same WLM configuration: fast, frequent BI dashboard queries (typically sub-second, run thousands of times per hour by an embedded analytics tool) and heavier nightly batch ETL transformations (each running for 20-40 minutes). Dashboard users have started reporting inconsistent response times, sometimes sub-second and sometimes taking 15-20 seconds, seemingly at random throughout the business day, even though ETL only runs overnight. The team has a strict monthly Redshift cost ceiling that rules out cluster resizing, and needs the dashboard queries to consistently execute in well under 2 seconds, since the embedded analytics tool is customer-facing and appears inside the company's own paid product, making slow dashboard loads a visible product-quality complaint rather than just an internal annoyance. What should they configure?",
+    "options": [
+      "Enable Short Query Acceleration (SQA), which automatically detects short-running queries and routes them to a dedicated queue with dedicated resources, prioritizing them ahead of longer-running queries competing for the same WLM queue slots — combined with reviewing WLM queue concurrency settings to ensure dashboard queries aren't queuing behind other ad-hoc long-running queries during the day.",
+      "Move all dashboard queries to run against a manually maintained read replica cluster kept in sync via nightly UNLOAD/COPY, since Redshift has no way to prioritize short queries within a single cluster.",
+      "Disable WLM entirely and let all queries compete for cluster resources equally, since manual WLM configuration is the root cause of inconsistent performance.",
+      "Convert all dashboard queries into materialized views refreshed every second, since materialized views always execute faster than any query against base tables regardless of query complexity or refresh overhead."
+    ],
+    "answer": 0,
+    "explanations": [
+      "A – Correct. Short Query Acceleration is a Redshift feature purpose-built for exactly this symptom: fast, short queries getting stuck behind longer-running queries in a shared WLM queue, causing inconsistent latency. SQA uses machine learning to predict query duration and automatically prioritizes short queries into a dedicated queue with dedicated resources, and reviewing WLM concurrency (in case daytime ad-hoc/other queries are competing for the same slots as dashboard queries) complements this — both are configuration changes, not cluster resizing, fitting the cost ceiling.",
+      "B – Incorrect. Standing up and manually syncing a second read replica cluster adds meaningful ongoing cost (a second cluster running continuously) and operational complexity that likely violates the stated cost ceiling, and it's a far heavier solution than the purpose-built SQA feature that directly addresses this exact symptom.",
+      "C – Incorrect. Disabling WLM entirely removes any prioritization mechanism at all, letting long-running and short queries compete completely unmanaged — this would likely make the inconsistent dashboard latency worse, not better, since nothing would protect short queries from queuing behind longer ones.",
+      "D – Incorrect. Materialized views are useful for caching specific repeated expensive queries, but claiming they 'always execute faster... regardless of complexity or refresh overhead' is an overgeneralization, and refreshing every second for many different dashboard query patterns would itself consume significant cluster resources, likely worsening contention rather than fixing the described root cause of WLM queue competition."
+    ],
+    "topic": "Short Query Acceleration is the specific, named Redshift feature for the 'fast dashboard queries getting randomly stuck behind slower queries in the same queue' symptom — it dynamically identifies short queries and gives them a dedicated priority queue/resources rather than requiring a full concurrency-scaling burst or a cluster resize. The exam-pattern trigger is inconsistent latency for typically-fast queries correlated with contention from other query types sharing WLM capacity, which should point to SQA and WLM queue/concurrency tuning as configuration-level fixes rather than infrastructure-level ones (a second cluster, disabling WLM) that don't fit a strict cost ceiling.",
+    "set": 3,
+    "timeLimit": 300
+  },
+  {
     "id": 206,
     "domain": 3,
     "difficulty": "hard",
